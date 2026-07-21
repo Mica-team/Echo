@@ -13,14 +13,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.echocontrol.app.ui.viewmodel.AppViewModel
 
 @Composable
 fun SettingsScreen(viewModel: AppViewModel) {
-    val settings by viewModel.settings.collectAsState()
+    val settings = viewModel.settings.collectAsState()
 
     Column(
         modifier = Modifier
@@ -45,8 +44,8 @@ fun SettingsScreen(viewModel: AppViewModel) {
                         Text("Light")
                     }
                 }
-                Text("Auto refresh: ${settings["auto_refresh"]}")
-                Text("Log level: ${settings["log_level"]}")
+                Text("Auto refresh: ${settings.value["auto_refresh"]}")
+                Text("Log level: ${settings.value["log_level"]}")
             }
         }
     }

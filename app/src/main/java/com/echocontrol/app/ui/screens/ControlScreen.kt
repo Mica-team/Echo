@@ -15,7 +15,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,8 +22,8 @@ import com.echocontrol.app.ui.viewmodel.AppViewModel
 
 @Composable
 fun ControlScreen(viewModel: AppViewModel) {
-    val commands by viewModel.controlCommands.collectAsState()
-    val deviceState by viewModel.deviceState.collectAsState()
+    val commands = viewModel.controlCommands.collectAsState()
+    val deviceState = viewModel.deviceState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -42,14 +41,14 @@ fun ControlScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Manual controls", style = MaterialTheme.typography.titleMedium)
-                Text(if (deviceState.isConnected) "Device is ready for control actions." else "Connect a device first to enable controls.")
+                Text(if (deviceState.value.isConnected) "Device is ready for control actions." else "Connect a device first to enable controls.")
                 Button(onClick = { viewModel.updateTelemetry() }) {
                     Text("Refresh telemetry")
                 }
             }
         }
 
-        commands.forEach { command ->
+        commands.value.forEach { command ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()

@@ -12,7 +12,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.echocontrol.app.ui.viewmodel.AppViewModel
@@ -20,8 +19,8 @@ import java.util.Locale
 
 @Composable
 fun StatusScreen(viewModel: AppViewModel) {
-    val deviceState by viewModel.deviceState.collectAsState()
-    val telemetryData by viewModel.telemetryData.collectAsState()
+    val deviceState = viewModel.deviceState.collectAsState()
+    val telemetryData = viewModel.telemetryData.collectAsState()
 
     Column(
         modifier = Modifier
@@ -42,11 +41,11 @@ fun StatusScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Telemetry snapshot", style = MaterialTheme.typography.titleMedium)
-                Text("Status: ${if (deviceState.isConnected) "Connected" else "Offline"}")
-                Text("Temperature: ${String.format(Locale.US, "%.1f", telemetryData.temperature)}°C")
-                Text("Humidity: ${String.format(Locale.US, "%.1f", telemetryData.humidity)}%")
-                Text("Signal: ${telemetryData.rssi} dBm")
-                Text("Battery: ${deviceState.batteryLevel}%")
+                Text("Status: ${if (deviceState.value.isConnected) "Connected" else "Offline"}")
+                Text("Temperature: ${String.format(Locale.US, "%.1f", telemetryData.value.temperature)}°C")
+                Text("Humidity: ${String.format(Locale.US, "%.1f", telemetryData.value.humidity)}%")
+                Text("Signal: ${telemetryData.value.rssi} dBm")
+                Text("Battery: ${deviceState.value.batteryLevel}%")
             }
         }
     }

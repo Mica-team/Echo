@@ -14,7 +14,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,9 +22,9 @@ import java.util.Locale
 
 @Composable
 fun DashboardScreen(viewModel: AppViewModel) {
-    val deviceState by viewModel.deviceState.collectAsState()
-    val telemetryData by viewModel.telemetryData.collectAsState()
-    val commands by viewModel.controlCommands.collectAsState()
+    val deviceState = viewModel.deviceState.collectAsState()
+    val telemetryData = viewModel.telemetryData.collectAsState()
+    val commands = viewModel.controlCommands.collectAsState()
 
     Column(
         modifier = Modifier
@@ -52,9 +51,9 @@ fun DashboardScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("System status", style = MaterialTheme.typography.titleMedium)
-                Text(if (deviceState.isConnected) "Connected to ${deviceState.name}" else "No device connected")
-                Text("Battery: ${deviceState.batteryLevel}%")
-                Text("Signal: ${deviceState.signalStrength} dBm")
+                Text(if (deviceState.value.isConnected) "Connected to ${deviceState.value.name}" else "No device connected")
+                Text("Battery: ${deviceState.value.batteryLevel}%")
+                Text("Signal: ${deviceState.value.signalStrength} dBm")
             }
         }
 
@@ -64,10 +63,10 @@ fun DashboardScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Telemetry snapshot", style = MaterialTheme.typography.titleMedium)
-                Text("Temperature: ${String.format(Locale.US, "%.1f", telemetryData.temperature)}°C")
-                Text("Humidity: ${String.format(Locale.US, "%.1f", telemetryData.humidity)}%")
-                Text("Pressure: ${String.format(Locale.US, "%.1f", telemetryData.pressure)} hPa")
-                Text("Active commands: ${commands.count { it.isActive }}")
+                Text("Temperature: ${String.format(Locale.US, "%.1f", telemetryData.value.temperature)}°C")
+                Text("Humidity: ${String.format(Locale.US, "%.1f", telemetryData.value.humidity)}%")
+                Text("Pressure: ${String.format(Locale.US, "%.1f", telemetryData.value.pressure)} hPa")
+                Text("Active commands: ${commands.value.count { it.isActive }}")
             }
         }
     }
