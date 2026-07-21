@@ -30,10 +30,10 @@ if [ -z "$JAVA_HOME" ]; then
   JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(which java)" 2>/dev/null || echo /usr/bin/java)")")"
 fi
 
-CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
-
 # Determine the current working directory and set APP_HOME.
 APP_HOME=$(cd "$(dirname "$0")" && pwd)
+
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
 # Load the Gradle wrapper properties
 if [ -f "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" ]; then
