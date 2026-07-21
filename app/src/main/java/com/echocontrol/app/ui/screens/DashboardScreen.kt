@@ -2,20 +2,31 @@ package com.echocontrol.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.echocontrol.app.ui.viewmodel.AppViewModel
+import java.util.Locale
 
 @Composable
-fun DashboardScreen() {
+fun DashboardScreen(viewModel: AppViewModel) {
+    val deviceState by viewModel.deviceState.collectAsState()
+    val telemetryData by viewModel.telemetryData.collectAsState()
+    val commands by viewModel.controlCommands.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -26,23 +37,37 @@ fun DashboardScreen() {
         Text("Dashboard", style = MaterialTheme.typography.headlineMedium)
         Text("Overview of the connected Echo system.", style = MaterialTheme.typography.bodyLarge)
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.padding(top = 4.dp)
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("System status", style = MaterialTheme.typography.titleMedium)
-                Text("All services nominal. Ready for control operations.")
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = { viewModel.scanDevices(); viewModel.updateTelemetry() }) {
+                Text("Refresh")
+            }
+            Button(onClick = { viewModel.connectDevice("Echo Device 1") }) {
+                Text("Connect demo")
             }
         }
 
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Quick actions", style = MaterialTheme.typography.titleMedium)
-                Text("• Pair a device\n• Start live telemetry\n• Review recent commands")
+                Text("System status", style = MaterialTheme.typography.titleMedium)
+                Text(if (deviceState.isConnected) "Connected to ${deviceState.name}" else "No device connected")
+                Text("Battery: ${deviceState.batteryLevel}%")
+                Text("Signal: ${deviceState.signalStrength} dBm")
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Telemetry snapshot", style = MaterialTheme.typography.titleMedium)
+                Text("Temperature: ${String.format(Locale.US, "%.1f", telemetryData.temperature)}°C")
+                Text("Humidity: ${String.format(Locale.US, "%.1f", telemetryData.humidity)}%")
+                Text("Pressure: ${String.format(Locale.US, "%.1f", telemetryData.pressure)} hPa")
+                Text("Active commands: ${commands.count { it.isActive }}")
             }
         }
     }

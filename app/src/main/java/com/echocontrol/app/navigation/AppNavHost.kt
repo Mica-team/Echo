@@ -8,6 +8,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -18,9 +19,13 @@ import com.echocontrol.app.settings.SettingsScreen
 import com.echocontrol.app.telemetry.StatusScreen
 import com.echocontrol.app.ui.screens.ControlScreen
 import com.echocontrol.app.ui.screens.DashboardScreen
+import com.echocontrol.app.ui.viewmodel.AppViewModel
 
 @Composable
-fun AppNavHost(navController: NavHostController = rememberNavController()) {
+fun AppNavHost(
+    navController: NavHostController = rememberNavController(),
+    viewModel: AppViewModel = viewModel()
+) {
     val items = listOf(
         AppDestination.Dashboard,
         AppDestination.Bluetooth,
@@ -56,11 +61,11 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             startDestination = AppDestination.Dashboard.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(AppDestination.Dashboard.route) { DashboardScreen() }
-            composable(AppDestination.Bluetooth.route) { BluetoothScreen() }
-            composable(AppDestination.Control.route) { ControlScreen() }
-            composable(AppDestination.Status.route) { StatusScreen() }
-            composable(AppDestination.Settings.route) { SettingsScreen() }
+            composable(AppDestination.Dashboard.route) { DashboardScreen(viewModel) }
+            composable(AppDestination.Bluetooth.route) { BluetoothScreen(viewModel) }
+            composable(AppDestination.Control.route) { ControlScreen(viewModel) }
+            composable(AppDestination.Status.route) { StatusScreen(viewModel) }
+            composable(AppDestination.Settings.route) { SettingsScreen(viewModel) }
         }
     }
 }

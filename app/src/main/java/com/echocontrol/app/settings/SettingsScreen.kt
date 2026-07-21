@@ -2,18 +2,26 @@ package com.echocontrol.app.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.echocontrol.app.ui.viewmodel.AppViewModel
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(viewModel: AppViewModel) {
+    val settings by viewModel.settings.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -25,11 +33,20 @@ fun SettingsScreen() {
 
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Preferences", style = MaterialTheme.typography.titleMedium)
-                Text("Dark mode, device profiles, and developer mode will live here.")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { viewModel.setSetting("theme_mode", "dark") }) {
+                        Text("Dark")
+                    }
+                    Button(onClick = { viewModel.setSetting("theme_mode", "light") }) {
+                        Text("Light")
+                    }
+                }
+                Text("Auto refresh: ${settings["auto_refresh"]}")
+                Text("Log level: ${settings["log_level"]}")
             }
         }
     }
