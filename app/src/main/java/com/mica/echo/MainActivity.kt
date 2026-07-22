@@ -22,12 +22,12 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val isAuthenticated = remember { mutableStateOf(false) }
+                    val googleSignInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+    .requestIdToken(getString(R.string.default_web_client_id))
+    .requestEmail()
+    .build()
 
-                    if (isAuthenticated.value) {
-                        AppNavHost()
-                    } else {
-                        AuthenticationScreen(onContinueAsGuest = { isAuthenticated.value = true })
+val googleSignInClient = GoogleSignIn.getClient(this, googleSignInOptions)
                     }
                 }
             }
