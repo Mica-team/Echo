@@ -1,10 +1,11 @@
 package com.mica.echo.auth
 
+import android.app.Activity
 import android.content.Intent
-import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,9 +14,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -23,7 +24,29 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun AuthenticationScreen() {
+
     val context = LocalContext.current
+    val activity = context as Activity
+
+    val manager = remember {
+        GoogleSignInManager(activity)
+    }
+
+    val launcher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+
+            manager.handleResult(
+                result.data?.data?.let { Intent().setData(it) } ?: result.data,
+                onSuccess = {
+                    println("Google Login Success")
+                },
+                onError = {
+                    println(it)
+                }
+            )
+        }
 
     Column(
         modifier = Modifier
@@ -32,49 +55,49 @@ fun AuthenticationScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+
         Text(
-            text = "Echo Control",
+            "Echo Control",
             style = MaterialTheme.typography.headlineLarge
         )
+
         Text(
-            text = "Sign in to unlock the full device control experience.",
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+            "Sign in to unlock the full device control experience.",
+            modifier = Modifier.padding(vertical = 16.dp)
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            colors = CardDefaults.cardColors()
         ) {
+
             Column(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Choose a sign-in provider", style = MaterialTheme.typography.titleMedium)
 
                 Button(
+                    modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://accounts.google.com/"))
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                        manager.signIn(launcher)
+                    }
                 ) {
                     Text("Continue with Google")
                 }
 
                 Button(
+                    modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://login.microsoftonline.com/common/oauth2/v2.0/authorize"))
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                        // Microsoft login later
+                    }
                 ) {
                     Text("Continue with Microsoft")
                 }
 
-                
             }
+
         }
+
     }
 }
