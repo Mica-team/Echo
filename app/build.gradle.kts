@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.echocontrol.app"
+    namespace = "com.mica.echo"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.echocontrol.app"
+        applicationId = "com.mica.echo"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
