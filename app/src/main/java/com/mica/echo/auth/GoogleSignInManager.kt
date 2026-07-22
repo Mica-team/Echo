@@ -12,31 +12,36 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.mica.echo.R
 
 class GoogleSignInManager(
-    private val context: Context,
-    private val launcher: ActivityResultLauncher<Intent>,
-    private val onSuccess: () -> Unit,
-    private val onFailure: (String) -> Unit
+    context: Context
 ) {
 
     private val auth = FirebaseAuth.getInstance()
 
-    private val gso = GoogleSignInOptions.Builder(
-        GoogleSignInOptions.DEFAULT_SIGN_IN
+    private val googleClient = GoogleSignIn.getClient(
+        context,
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
     )
-        .requestIdToken(context.getString(R.string.default_web_client_id))
-        .requestEmail()
-        .build()
 
-    private val client = GoogleSignIn.getClient(context, gso)
-
-    fun signIn() {
-        launcher.launch(client.signInIntent)
+    fun signIn(
+        launcher: ActivityResultLauncher<Intent>
+    ) {
+        launcher.launch(googleClient.signInIntent)
     }
 
-    fun handleResult(data: Intent?) {
+    fun handleResult(
+        data: Intent?,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+
         try {
-            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
-                .getResult(ApiException::class.java)
+
+            val account =
+                GoogleSignIn.getSignedInAccountFromIntent(data)
+                    .getResult(ApiException::class.java)
 
             val credential =
                 GoogleAuthProvider.getCredential(account.idToken, null)
@@ -46,11 +51,13 @@ class GoogleSignInManager(
                     onSuccess()
                 }
                 .addOnFailureListener {
-                    onFailure(it.message ?: "Authentication failed")
+                    onError(it.localizedMessage ?: "Authentication Failed")
                 }
 
         } catch (e: Exception) {
-            onFailure(e.message ?: "Google Sign-In failed")
+            onError(e.localizedMessage ?: "Google Sign-In Failed")
         }
+
     }
+
 }
