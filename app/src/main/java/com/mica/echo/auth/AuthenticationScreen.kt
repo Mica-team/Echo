@@ -22,9 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun AuthenticationScreen(
-    onContinueAsGuest: () -> Unit
-) {
+fun AuthenticationScreen() {
     val context = LocalContext.current
 
     Column(
@@ -68,21 +66,14 @@ fun AuthenticationScreen(
                 Button(
                     onClick = {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://login.microsoftonline.com/common/oauth2/v2.0/authorize"))
-                        context.startActivity(intent)
+                        conte xt.startActivity(intent)
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Continue with Microsoft")
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    OutlinedButton(onClick = onContinueAsGuest) {
-                        Text("Continue as Guest")
-                    }
-                }
+                
             }
         }
     }
