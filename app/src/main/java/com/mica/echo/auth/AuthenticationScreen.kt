@@ -66,7 +66,7 @@ fun AuthenticationScreen() {
                 Button(
                     onClick = {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://login.microsoftonline.com/common/oauth2/v2.0/authorize"))
-                        conte xt.startActivity(intent)
+                        context.startActivity(intent)
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
