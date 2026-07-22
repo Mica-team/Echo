@@ -21,8 +21,8 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15"
-    }
+    kotlinCompilerExtensionVersion = "1.5.15"
+}
 
     buildTypes {
         release {
@@ -42,9 +42,9 @@ android {
 }
 
 dependencies {
-implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
-implementation("com.google.firebase:firebase-auth")
-implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
