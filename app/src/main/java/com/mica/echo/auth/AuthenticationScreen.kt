@@ -2,6 +2,7 @@ package com.mica.echo.auth
 
 import android.app.Activity
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -40,15 +41,16 @@ fun AuthenticationScreen(
         ) { result ->
 
             manager.handleResult(
-                result.data?.data?.let { Intent().setData(it) } ?: result.data,
+                result.data,
                 onSuccess = {
-    onLoginSuccess()
+                    onLoginSuccess()
                 },
-                    import android.widget.Toast
-
-onError = {
-    Toast.makeText(activity, it, Toast.LENGTH_LONG).show()
-}
+                onError = { error ->
+                    Toast.makeText(
+                        activity,
+                        error,
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             )
         }
@@ -62,12 +64,12 @@ onError = {
     ) {
 
         Text(
-            "Echo Control",
+            text = "Echo Control",
             style = MaterialTheme.typography.headlineLarge
         )
 
         Text(
-            "So you here to connect your robots, etc, then login",
+            text = "Sign in to unlock the full device control experience.",
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
@@ -94,7 +96,11 @@ onError = {
                 Button(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        // Microsoft login later
+                        Toast.makeText(
+                            activity,
+                            "Microsoft Sign-In coming soon",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 ) {
                     Text("Continue with Microsoft")
