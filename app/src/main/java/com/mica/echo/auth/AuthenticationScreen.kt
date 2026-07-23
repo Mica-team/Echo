@@ -44,8 +44,11 @@ fun AuthenticationScreen(
                 onSuccess = {
     onLoginSuccess()
                 },
-                onError = {
-                    println(it)
+                    import android.widget.Toast
+
+onError = {
+    Toast.makeText(activity, it, Toast.LENGTH_LONG).show()
+}
                 }
             )
         }
