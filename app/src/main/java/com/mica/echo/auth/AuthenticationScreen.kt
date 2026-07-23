@@ -23,7 +23,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun AuthenticationScreen() {
+fun AuthenticationScreen(
+    onLoginSuccess: () -> Unit
+) {
 
     val context = LocalContext.current
     val activity = context as Activity
@@ -40,7 +42,7 @@ fun AuthenticationScreen() {
             manager.handleResult(
                 result.data?.data?.let { Intent().setData(it) } ?: result.data,
                 onSuccess = {
-                    println("Google Login Success")
+    onLoginSuccess()
                 },
                 onError = {
                     println(it)
