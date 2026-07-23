@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Echo</string>
+    <string name="default_web_client_id">
+        262128412666-r9thamctn8su36fqn4no763fp8pfukiu.apps.googleusercontent.com
+    </string>
+</resources>
