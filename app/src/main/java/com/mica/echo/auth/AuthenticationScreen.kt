@@ -62,7 +62,7 @@ fun AuthenticationScreen() {
         )
 
         Text(
-            "Sign in to unlock the full device control experience.",
+            "So you here to connect your robots, etc, then login",
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
