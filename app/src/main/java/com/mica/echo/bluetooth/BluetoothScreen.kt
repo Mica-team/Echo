@@ -1,6 +1,7 @@
 package com.mica.echo.bluetooth
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,12 +17,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import android.content.pm.PackageManager
 import com.mica.echo.ui.viewmodel.AppViewModel
 
 @Composable
@@ -49,9 +50,7 @@ fun BluetoothScreen(viewModel: AppViewModel) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
+        modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Bluetooth", style = MaterialTheme.typography.headlineMedium)
@@ -69,14 +68,9 @@ fun BluetoothScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Connection status", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (deviceState.value.isConnected) "Connected to ${deviceState.value.name}"
-                    else "Waiting for a device"
-                )
+                Text(if (deviceState.value.isConnected) "Connected to ${deviceState.value.name}" else "Waiting for a device")
                 if (deviceState.value.isConnected) {
-                    Button(onClick = { viewModel.disconnectDevice() }) {
-                        Text("Disconnect")
-                    }
+                    Button(onClick = { viewModel.disconnectDevice() }) { Text("Disconnect") }
                 }
             }
         }
@@ -90,15 +84,11 @@ fun BluetoothScreen(viewModel: AppViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(deviceName)
-                        Button(onClick = { viewModel.connectDevice(deviceName) }) {
-                            Text("Connect")
-                        }
+                        Button(onClick = { viewModel.connectDevice(deviceName) }) { Text("Connect") }
                     }
                 }
             }
