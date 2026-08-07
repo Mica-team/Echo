@@ -1,15 +1,22 @@
 package com.mica.echo.ui.viewmodel
 
+import android.content.Context
+import android.os.Build
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.mica.echo.bluetooth.EchoBluetoothManager
 import com.mica.echo.data.ControlCommand
 import com.mica.echo.data.DeviceState
 import com.mica.echo.data.TelemetryData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-class AppViewModel : ViewModel() {
+class AppViewModel(context: Context) : ViewModel() {
+    private val bluetooth = EchoBluetoothManager(context)
+
     private val _deviceState = MutableStateFlow(DeviceState())
     val deviceState: StateFlow<DeviceState> = _deviceState.asStateFlow()
 
@@ -38,27 +45,35 @@ class AppViewModel : ViewModel() {
     )
     val settings: StateFlow<Map<String, String>> = _settings.asStateFlow()
 
-    fun scanDevices() {
-        _availableDevices.value = listOf(
-            "Echo Device 1",
-            "Echo Device 2",
-            "Echo Sensor Pro"
+    init {
+        bluetooth.setListeners(
+            devicesChanged = { devices -> _availableDevices.value = devices },
+            connectionChanged = { device, connected ->
+                _deviceState.value = if (connected && device != null) {
+                    DeviceState(
+                        name = try { device.name ?: "Echo" } catch (_: SecurityException) { "Echo" },
+                        address = device.address,
+                        isConnected = true,
+                        signalStrength = -45,
+                        batteryLevel = 100
+                    )
+                } else {
+                    DeviceState()
+                }
+            }
         )
     }
 
+    fun scanDevices() = bluetooth.scan()
+
     fun connectDevice(deviceName: String) {
-        _deviceState.value = DeviceState(
-            name = deviceName,
-            address = "00:1A:7D:DA:71:13",
-            isConnected = true,
-            signalStrength = -45,
-            batteryLevel = 87
-        )
-        updateTelemetry()
+        viewModelScope.launch {
+            bluetooth.connect(deviceName)
+        }
     }
 
     fun disconnectDevice() {
-        _deviceState.value = DeviceState()
+        bluetooth.disconnect()
         _telemetryData.value = TelemetryData()
     }
 
@@ -67,9 +82,7 @@ class AppViewModel : ViewModel() {
         val nextSignal = if (currentState.isConnected) -45 - Random.nextInt(20) else -90 - Random.nextInt(10)
         val nextBattery = if (currentState.isConnected) {
             (currentState.batteryLevel - Random.nextInt(2)).coerceAtLeast(0)
-        } else {
-            currentState.batteryLevel
-        }
+        } else currentState.batteryLevel
 
         _telemetryData.value = TelemetryData(
             temperature = 18f + Random.nextFloat() * 18f,
@@ -89,11 +102,13 @@ class AppViewModel : ViewModel() {
     }
 
     fun executeCommand(commandId: String) {
-        _controlCommands.value = _controlCommands.value.map { cmd ->
-            if (cmd.id == commandId) {
-                cmd.copy(isActive = !cmd.isActive)
-            } else {
-                cmd
+        val command = _controlCommands.value.firstOrNull { it.id == commandId } ?: return
+        viewModelScope.launch {
+            val sent = bluetooth.send(command.id)
+            if (sent) {
+                _controlCommands.value = _controlCommands.value.map { cmd ->
+                    if (cmd.id == commandId) cmd.copy(isActive = !cmd.isActive) else cmd
+                }
             }
         }
     }
@@ -102,5 +117,10 @@ class AppViewModel : ViewModel() {
 
     fun setSetting(key: String, value: String) {
         _settings.value = _settings.value + (key to value)
+    }
+
+    override fun onCleared() {
+        bluetooth.close()
+        super.onCleared()
     }
 }
