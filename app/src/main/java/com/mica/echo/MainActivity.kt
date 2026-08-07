@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import com.mica.echo.auth.AuthenticationScreen
 import com.mica.echo.navigation.AppNavHost
 import com.mica.echo.ui.theme.EchoControlTheme
+import com.mica.echo.ui.viewmodel.AppViewModel
 
 class MainActivity : ComponentActivity() {
 
@@ -22,16 +23,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             EchoControlTheme {
-
+                val viewModel = remember { AppViewModel(applicationContext) }
                 var loggedIn by remember { mutableStateOf(false) }
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-
                     if (loggedIn) {
-                        AppNavHost()
+                        AppNavHost(viewModel = viewModel)
                     } else {
                         AuthenticationScreen(
                             onLoginSuccess = {
@@ -39,7 +39,6 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
-
                 }
             }
         }
