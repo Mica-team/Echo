@@ -15,12 +15,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      ECHO_KEYSTORE_BASE64: ${{ secrets.ECHO_KEYSTORE_BASE64 }}
-      ECHO_KEYSTORE_PASSWORD: ${{ secrets.ECHO_KEYSTORE_PASSWORD }}
-      ECHO_KEY_ALIAS: ${{ secrets.ECHO_KEY_ALIAS }}
-      ECHO_KEY_PASSWORD: ${{ secrets.ECHO_KEY_PASSWORD }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,35 +34,53 @@ jobs:
           sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Configure Echo signing keystore
+        env:
+          ECHO_KEYSTORE_BASE64: ${{ secrets.ECHO_KEYSTORE_BASE64 }}
+          ECHO_KEYSTORE_PASSWORD: ${{ secrets.ECHO_KEYSTORE_PASSWORD }}
+          ECHO_KEY_ALIAS: ${{ secrets.ECHO_KEY_ALIAS }}
+          ECHO_KEY_PASSWORD: ${{ secrets.ECHO_KEY_PASSWORD }}
         shell: bash
         run: |
+          set -euo pipefail
+
           if [ -z "$ECHO_KEYSTORE_BASE64" ]; then
-            echo "No Echo signing secret is available; this is expected for fork PRs."
-            exit 0
+            echo "ERROR: ECHO_KEYSTORE_BASE64 is unavailable."
+            echo "Run this workflow from a branch/repository context where Actions secrets are available."
+            exit 1
           fi
 
-          printf '%s' "$ECHO_KEYSTORE_BASE64" | base64 --decode > echo-release.jks
+          printf '%s' "$ECHO_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/echo-release.jks"
 
-          cat > keystore.properties <<EOF
-          storeFile=echo-release.jks
+          test -s "$GITHUB_WORKSPACE/echo-release.jks"
+
+          cat > "$GITHUB_WORKSPACE/keystore.properties" <<EOF
+          storeFile=$GITHUB_WORKSPACE/echo-release.jks
           storePassword=$ECHO_KEYSTORE_PASSWORD
           keyAlias=$ECHO_KEY_ALIAS
           keyPassword=$ECHO_KEY_PASSWORD
           EOF
 
-          chmod 600 echo-release.jks keystore.properties
-          echo "Echo signing keystore configured."
+          chmod 600 "$GITHUB_WORKSPACE/echo-release.jks" "$GITHUB_WORKSPACE/keystore.properties"
+
+          echo "Checking Echo keystore certificate..."
+          keytool -list -v \
+            -keystore "$GITHUB_WORKSPACE/echo-release.jks" \
+            -storepass "$ECHO_KEYSTORE_PASSWORD" \
+            -alias "$ECHO_KEY_ALIAS" \
+            | grep -E 'Alias name:|SHA1:|SHA256:'
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew clean assembleDebug --stacktrace
 
       - name: Verify APK signing certificate
         shell: bash
         run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          set -euo pipefail
+
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           EXPECTED="E6:DA:CE:FE:81:68:C3:E3:C1:59:69:08:E6:A9:D3:7B:98:B3:2F:01"
 
@@ -82,6 +94,11 @@ jobs:
 
           echo "Expected SHA-1: $EXPECTED"
           echo "Actual SHA-1:   $ACTUAL"
+
+          if [ -z "$ACTUAL" ]; then
+            echo "ERROR: Could not read the APK SHA-1 certificate."
+            exit 1
+          fi
 
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "ERROR: APK is not signed with the Echo release certificate."
@@ -100,4 +117,4 @@ jobs:
       - name: Clean signing material
         if: always()
         run: |
-          rm -f echo-release.jks keystore.properties
+          rm -f "$GITHUB_WORKSPACE/echo-release.jks" "$GITHUB_WORKSPACE/keystore.properties"
