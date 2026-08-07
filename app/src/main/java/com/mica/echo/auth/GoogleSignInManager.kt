@@ -54,10 +54,18 @@ class GoogleSignInManager(
                     onError(it.localizedMessage ?: "Authentication Failed")
                 }
 
-        } catch (e: Exception) {
-            onError(e.localizedMessage ?: "Google Sign-In Failed")
+        } catch (e: ApiException) {
+    onError(
+        "Google Sign-In failed: code=${e.statusCode}, message=${e.statusMessage}"
+    )
+}
+catch (e: Exception) {
+    onError(
+        "Google Sign-In failed: ${e.localizedMessage}"
+    )
+}
         }
 
     }
 
-}
+
