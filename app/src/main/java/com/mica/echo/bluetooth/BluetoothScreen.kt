@@ -1,5 +1,9 @@
 package com.mica.echo.bluetooth
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,15 +16,37 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import com.mica.echo.ui.viewmodel.AppViewModel
 
 @Composable
 fun BluetoothScreen(viewModel: AppViewModel) {
+    val context = LocalContext.current
     val deviceState = viewModel.deviceState.collectAsState()
     val availableDevices = viewModel.availableDevices.collectAsState()
+
+    val permissions = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result.values.all { it }) viewModel.scanDevices()
+    }
+
+    fun hasPermissions(): Boolean = permissions.all {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
 
     Column(
         modifier = Modifier
@@ -29,10 +55,12 @@ fun BluetoothScreen(viewModel: AppViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Bluetooth", style = MaterialTheme.typography.headlineMedium)
-        Text("Manage nearby connections for Echo Control.", style = MaterialTheme.typography.bodyLarge)
+        Text("Connect Echo Control to your Echo robot.", style = MaterialTheme.typography.bodyLarge)
 
-        Button(onClick = { viewModel.scanDevices() }) {
-            Text("Scan nearby")
+        Button(onClick = {
+            if (hasPermissions()) viewModel.scanDevices() else permissionLauncher.launch(permissions)
+        }) {
+            Text(if (hasPermissions()) "Scan nearby" else "Allow Bluetooth & Scan")
         }
 
         Card(
@@ -41,7 +69,10 @@ fun BluetoothScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Connection status", style = MaterialTheme.typography.titleMedium)
-                Text(if (deviceState.value.isConnected) "Connected to ${deviceState.value.name}" else "Waiting for a device")
+                Text(
+                    if (deviceState.value.isConnected) "Connected to ${deviceState.value.name}"
+                    else "Waiting for a device"
+                )
                 if (deviceState.value.isConnected) {
                     Button(onClick = { viewModel.disconnectDevice() }) {
                         Text("Disconnect")
@@ -51,7 +82,7 @@ fun BluetoothScreen(viewModel: AppViewModel) {
         }
 
         if (availableDevices.value.isEmpty()) {
-            Text("No devices discovered yet. Tap scan to search.")
+            Text("No devices discovered yet. Turn on Echo and tap scan.")
         } else {
             availableDevices.value.forEach { deviceName ->
                 Card(
