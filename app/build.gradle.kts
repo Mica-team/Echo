@@ -44,7 +44,11 @@ android {
 
     buildTypes {
         debug {
-            // Keeps debug builds working
+            // CI uses the Echo release key when keystore.properties is present.
+            // Local debug builds continue to use the normal Android debug key.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
 
         release {
