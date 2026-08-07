@@ -82,7 +82,7 @@ jobs:
 
           APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          EXPECTED="E6:DA:CE:FE:81:68:C3:E3:C1:59:69:08:E6:A9:D3:7B:98:B3:2F:01"
+          EXPECTED="E6DACEFE8168C3E3C1596908E6A9D37B98B32F01"
 
           echo "APK: $APK"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
