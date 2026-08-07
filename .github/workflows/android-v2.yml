@@ -32,6 +32,12 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Show APK signing certificate
+        run: |
+         APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+         echo "APK: $APK"
+         $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | tail -n 1)/apksigner verify --print-certs "$APK"
+     
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
