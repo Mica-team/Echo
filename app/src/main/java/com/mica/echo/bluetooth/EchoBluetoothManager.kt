@@ -21,12 +21,6 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.UUID
 
-/**
- * A Bluetooth Classic device that Echo can display/connect to.
- *
- * The MAC address is supplied by Android.
- * Nothing is hardcoded to a particular ESP32.
- */
 data class EchoBluetoothDevice(
     val name: String,
     val address: String
@@ -36,7 +30,8 @@ class EchoBluetoothManager(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler =
+        Handler(Looper.getMainLooper())
 
     private val adapter: BluetoothAdapter? =
         BluetoothAdapter.getDefaultAdapter()
@@ -44,10 +39,11 @@ class EchoBluetoothManager(context: Context) {
     private var socket: BluetoothSocket? = null
     private var output: OutputStream? = null
 
-    /**
-     * Key = MAC address.
+    /*
+     * Key = Bluetooth MAC address.
      *
-     * This means different ESP32 units can all work.
+     * No ESP32 address is hardcoded.
+     * Every compatible paired ESP32 can therefore be used.
      */
     private val devices =
         linkedMapOf<String, BluetoothDevice>()
@@ -66,11 +62,16 @@ class EchoBluetoothManager(context: Context) {
             intent: Intent
         ) {
             try {
+
                 when (intent.action) {
 
                     BluetoothDevice.ACTION_FOUND -> {
+
                         val device =
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (
+                                Build.VERSION.SDK_INT >=
+                                Build.VERSION_CODES.TIRAMISU
+                            ) {
                                 intent.getParcelableExtra(
                                     BluetoothDevice.EXTRA_DEVICE,
                                     BluetoothDevice::class.java
@@ -88,33 +89,50 @@ class EchoBluetoothManager(context: Context) {
                     }
 
                     BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
-                        Log.d(TAG, "Classic Bluetooth discovery started")
+
+                        Log.d(
+                            TAG,
+                            "Classic Bluetooth discovery started"
+                        )
                     }
 
                     BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                        Log.d(TAG, "Classic Bluetooth discovery finished")
+
+                        Log.d(
+                            TAG,
+                            "Classic Bluetooth discovery finished"
+                        )
 
                         /*
-                         * Some Android/Bluetooth stacks don't reliably send
-                         * ACTION_FOUND for devices that are already paired.
+                         * Refresh bonded devices.
                          *
-                         * Refresh paired devices after discovery.
+                         * This is important because the ESP32 may
+                         * already be paired with the phone.
                          */
                         addBondedDevices()
                     }
 
                     BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                        Log.d(TAG, "Bluetooth bond state changed")
+
+                        Log.d(
+                            TAG,
+                            "Bluetooth bond state changed"
+                        )
+
                         addBondedDevices()
                     }
                 }
+
             } catch (e: SecurityException) {
+
                 Log.e(
                     TAG,
-                    "Bluetooth permission/security error in receiver",
+                    "Bluetooth security error in receiver",
                     e
                 )
+
             } catch (e: Exception) {
+
                 Log.e(
                     TAG,
                     "Bluetooth receiver error",
@@ -129,20 +147,34 @@ class EchoBluetoothManager(context: Context) {
     }
 
     private fun registerBluetoothReceiver() {
+
         try {
-            val filter = IntentFilter().apply {
-                addAction(BluetoothDevice.ACTION_FOUND)
-                addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
-                addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val filter =
+                IntentFilter().apply {
 
-                /*
-                 * Bluetooth system broadcasts are delivered by the
-                 * Android system, so this receiver must be exported.
-                 */
+                    addAction(
+                        BluetoothDevice.ACTION_FOUND
+                    )
+
+                    addAction(
+                        BluetoothAdapter.ACTION_DISCOVERY_STARTED
+                    )
+
+                    addAction(
+                        BluetoothAdapter.ACTION_DISCOVERY_FINISHED
+                    )
+
+                    addAction(
+                        BluetoothDevice.ACTION_BOND_STATE_CHANGED
+                    )
+                }
+
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.TIRAMISU
+            ) {
+
                 ContextCompat.registerReceiver(
                     appContext,
                     receiver,
@@ -159,9 +191,13 @@ class EchoBluetoothManager(context: Context) {
                 )
             }
 
-            Log.d(TAG, "Bluetooth receiver registered")
+            Log.d(
+                TAG,
+                "Bluetooth receiver registered"
+            )
 
         } catch (e: Exception) {
+
             Log.e(
                 TAG,
                 "Failed to register Bluetooth receiver",
@@ -177,29 +213,21 @@ class EchoBluetoothManager(context: Context) {
         connectionChanged:
             (BluetoothDevice?, Boolean) -> Unit
     ) {
+
         onDevicesChanged = devicesChanged
         onConnectionChanged = connectionChanged
 
         /*
-         * Immediately expose already-paired devices when listeners
-         * are attached. This avoids depending on a discovery scan.
+         * Immediately load already-paired devices.
          */
         addBondedDevices()
     }
 
-    /**
-     * Scans Classic Bluetooth devices.
-     *
-     * IMPORTANT:
-     * Paired devices are added BEFORE discovery starts.
-     *
-     * Therefore an already-paired old ESP32 does not depend on
-     * ACTION_FOUND to appear in Echo.
-     */
     @SuppressLint("MissingPermission")
     fun scan() {
 
         if (!hasBluetoothPermission()) {
+
             Log.w(
                 TAG,
                 "Bluetooth permission is not available"
@@ -212,6 +240,7 @@ class EchoBluetoothManager(context: Context) {
         val btAdapter = adapter
 
         if (btAdapter == null) {
+
             Log.e(
                 TAG,
                 "Bluetooth adapter is unavailable"
@@ -224,6 +253,7 @@ class EchoBluetoothManager(context: Context) {
         try {
 
             if (!btAdapter.isEnabled) {
+
                 Log.w(
                     TAG,
                     "Bluetooth is disabled"
@@ -234,30 +264,28 @@ class EchoBluetoothManager(context: Context) {
             }
 
             /*
-             * Do NOT filter by:
-             * - name
-             * - MAC address
-             * - "Echo"
+             * Don't filter by name or MAC address.
              *
-             * Every paired Classic Bluetooth device is allowed to
-             * appear. The user chooses which one to connect to.
+             * This keeps the app usable with different ESP32 units.
              */
             devices.clear()
 
-            Log.d(
-                TAG,
-                "Loading paired Classic Bluetooth devices..."
-            )
-
+            /*
+             * First load paired Classic Bluetooth devices.
+             *
+             * This is the important part for the old paired ESP32.
+             */
             addBondedDevices()
 
             /*
-             * Discovery can interfere with an RFCOMM connection,
-             * so stop any previous scan first.
+             * Stop any previous discovery.
              */
             try {
+
                 btAdapter.cancelDiscovery()
+
             } catch (e: Exception) {
+
                 Log.w(
                     TAG,
                     "Could not cancel previous discovery",
@@ -265,15 +293,22 @@ class EchoBluetoothManager(context: Context) {
                 )
             }
 
+            /*
+             * Start Classic Bluetooth discovery.
+             */
             val started =
                 try {
+
                     btAdapter.startDiscovery()
+
                 } catch (e: Exception) {
+
                     Log.e(
                         TAG,
                         "startDiscovery() failed",
                         e
                     )
+
                     false
                 }
 
@@ -306,38 +341,40 @@ class EchoBluetoothManager(context: Context) {
         }
     }
 
-    /**
-     * Reads Android's actual bonded-device list.
-     *
-     * This is the important path for your old paired ESP32.
-     */
     @SuppressLint("MissingPermission")
     private fun addBondedDevices() {
 
         if (!hasBluetoothPermission()) {
+
             Log.w(
                 TAG,
                 "Cannot read bonded devices: permission missing"
             )
+
             return
         }
 
         try {
 
-            val btAdapter = adapter ?: return
+            val btAdapter =
+                adapter ?: return
 
-            val bonded = btAdapter.bondedDevices
+            val bondedDevices =
+                btAdapter.bondedDevices
 
             Log.d(
                 TAG,
-                "Bonded Classic Bluetooth devices: ${bonded.size}"
+                "Bonded Bluetooth devices: ${bondedDevices.size}"
             )
 
-            bonded.forEach { device ->
+            bondedDevices.forEach { device ->
 
                 try {
+
                     addDeviceInternal(device)
+
                 } catch (e: Exception) {
+
                     Log.w(
                         TAG,
                         "Failed to process bonded device",
@@ -370,6 +407,7 @@ class EchoBluetoothManager(context: Context) {
     private fun addDevice(
         device: BluetoothDevice
     ) {
+
         try {
 
             addDeviceInternal(device)
@@ -387,7 +425,7 @@ class EchoBluetoothManager(context: Context) {
 
             Log.e(
                 TAG,
-                "Failed to add discovered Bluetooth device",
+                "Failed to add Bluetooth device",
                 e
             )
         }
@@ -400,13 +438,10 @@ class EchoBluetoothManager(context: Context) {
 
         try {
 
-            val address = device.address
+            val address =
+                device.address
 
             if (address.isNullOrBlank()) {
-                Log.w(
-                    TAG,
-                    "Ignoring Bluetooth device with no address"
-                )
                 return
             }
 
@@ -428,11 +463,6 @@ class EchoBluetoothManager(context: Context) {
         }
     }
 
-    /**
-     * Publishes all known Classic Bluetooth devices.
-     *
-     * There is deliberately NO "Echo" name filter here.
-     */
     @SuppressLint("MissingPermission")
     private fun publishDevices() {
 
@@ -442,11 +472,13 @@ class EchoBluetoothManager(context: Context) {
 
                     try {
 
-                        val address = device.address
+                        val address =
+                            device.address
 
                         if (address.isNullOrBlank()) {
                             null
                         } else {
+
                             EchoBluetoothDevice(
                                 name = safeName(device),
                                 address = address
@@ -454,33 +486,33 @@ class EchoBluetoothManager(context: Context) {
                         }
 
                     } catch (e: Exception) {
+
                         Log.w(
                             TAG,
                             "Could not create device entry",
                             e
                         )
+
                         null
                     }
                 }
-                .distinctBy { it.address }
+                .distinctBy {
+                    it.address
+                }
 
         Log.d(
             TAG,
             "Publishing ${result.size} Bluetooth device(s)"
         )
 
-        result.forEach {
-            Log.d(
-                TAG,
-                "  ${it.name} [${it.address}]"
-            )
-        }
-
         mainHandler.post {
 
             try {
+
                 onDevicesChanged?.invoke(result)
+
             } catch (e: Exception) {
+
                 Log.e(
                     TAG,
                     "Device-list callback failed",
@@ -490,14 +522,6 @@ class EchoBluetoothManager(context: Context) {
         }
     }
 
-    /**
-     * Connect using the actual Bluetooth MAC address.
-     *
-     * This works with different ESP32 units without hardcoding
-     * any particular device.
-     *
-     * Uses Bluetooth Classic RFCOMM/SPP.
-     */
     @SuppressLint("MissingPermission")
     suspend fun connect(
         address: String
@@ -526,11 +550,17 @@ class EchoBluetoothManager(context: Context) {
         try {
 
             val btAdapter =
-                adapter ?: return@withContext false
+                adapter
+                    ?: return@withContext false
 
             /*
-             * Prefer the device we already discovered/loaded from
-             * bondedDevices.
+             * Prefer the device already loaded from:
+             *
+             * 1. discovery
+             * 2. bondedDevices
+             *
+             * If necessary, create a BluetoothDevice from the
+             * supplied MAC address.
              */
             val device =
                 devices[address]
@@ -542,18 +572,19 @@ class EchoBluetoothManager(context: Context) {
                             )
                         }
                     ?: try {
-                        /*
-                         * This does not require discovery.
-                         * Android can create a BluetoothDevice object
-                         * from a known address.
-                         */
-                        btAdapter.getRemoteDevice(address)
+
+                        btAdapter.getRemoteDevice(
+                            address
+                        )
+
                     } catch (e: IllegalArgumentException) {
+
                         Log.e(
                             TAG,
                             "Invalid Bluetooth address: $address",
                             e
                         )
+
                         return@withContext false
                     }
 
@@ -564,11 +595,14 @@ class EchoBluetoothManager(context: Context) {
             )
 
             /*
-             * Discovery must be stopped before RFCOMM connection.
+             * Discovery interferes with RFCOMM.
              */
             try {
+
                 btAdapter.cancelDiscovery()
+
             } catch (e: Exception) {
+
                 Log.w(
                     TAG,
                     "Could not cancel discovery before connection",
@@ -576,12 +610,15 @@ class EchoBluetoothManager(context: Context) {
                 )
             }
 
-            disconnect(notify = false)
+            disconnect(
+                notify = false
+            )
 
             /*
-             * Standard Bluetooth Serial Port Profile UUID.
+             * Standard Bluetooth Classic SPP UUID.
              *
-             * This is the UUID commonly used by ESP32 BluetoothSerial.
+             * This is compatible with ESP32 BluetoothSerial-style
+             * firmware without changing the ESP32.
              */
             val secureSocket =
                 device.createRfcommSocketToServiceRecord(
@@ -597,8 +634,11 @@ class EchoBluetoothManager(context: Context) {
 
                 secureSocket.connect()
 
-                socket = secureSocket
-                output = secureSocket.outputStream
+                socket =
+                    secureSocket
+
+                output =
+                    secureSocket.outputStream
 
                 notifyConnection(
                     device,
@@ -627,8 +667,8 @@ class EchoBluetoothManager(context: Context) {
             }
 
             /*
-             * Some Classic Bluetooth serial implementations work
-             * better with an insecure RFCOMM socket.
+             * Fallback for Classic Bluetooth serial devices
+             * that don't accept the secure socket.
              */
             val insecureSocket =
                 device.createInsecureRfcommSocketToServiceRecord(
@@ -644,8 +684,11 @@ class EchoBluetoothManager(context: Context) {
 
                 insecureSocket.connect()
 
-                socket = insecureSocket
-                output = insecureSocket.outputStream
+                socket =
+                    insecureSocket
+
+                output =
+                    insecureSocket.outputStream
 
                 notifyConnection(
                     device,
@@ -712,9 +755,6 @@ class EchoBluetoothManager(context: Context) {
         }
     }
 
-    /**
-     * Sends a text command through the Classic Bluetooth SPP stream.
-     */
     suspend fun send(
         command: String
     ): Boolean = withContext(Dispatchers.IO) {
@@ -722,17 +762,15 @@ class EchoBluetoothManager(context: Context) {
         try {
 
             val stream =
-                output ?: run {
-                    Log.w(
-                        TAG,
-                        "Cannot send: Bluetooth is not connected"
-                    )
-                    return@withContext false
-                }
+                output
+                    ?: return@withContext false
 
             val data =
-                (command.trim() + "\n")
-                    .toByteArray(Charsets.UTF_8)
+                (
+                    command.trim() + "\n"
+                ).toByteArray(
+                    Charsets.UTF_8
+                )
 
             stream.write(data)
             stream.flush()
@@ -767,7 +805,9 @@ class EchoBluetoothManager(context: Context) {
     }
 
     fun disconnect() {
-        disconnect(notify = true)
+        disconnect(
+            notify = true
+        )
     }
 
     private fun disconnect(
@@ -775,8 +815,11 @@ class EchoBluetoothManager(context: Context) {
     ) {
 
         try {
+
             socket?.close()
+
         } catch (e: Exception) {
+
             Log.w(
                 TAG,
                 "Error closing Bluetooth socket",
@@ -788,5 +831,46 @@ class EchoBluetoothManager(context: Context) {
         output = null
 
         if (notify) {
+
             notifyConnection(
-      
+                null,
+                false
+            )
+        }
+    }
+
+    private fun notifyConnection(
+        device: BluetoothDevice?,
+        connected: Boolean
+    ) {
+
+        mainHandler.post {
+
+            try {
+
+                onConnectionChanged?.invoke(
+                    device,
+                    connected
+                )
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Connection callback failed",
+                    e
+                )
+            }
+        }
+    }
+
+    fun isConnected(): Boolean {
+        return try {
+            socket?.isConnected == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /*
+   
