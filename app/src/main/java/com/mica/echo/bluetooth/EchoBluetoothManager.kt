@@ -21,73 +21,51 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.UUID
 
+data class EchoBluetoothDevice(
+    val name: String,
+    val address: String
+)
+
 class EchoBluetoothManager(context: Context) {
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    private val adapter: BluetoothAdapter? =
-        BluetoothAdapter.getDefaultAdapter()
+    private val adapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
 
     private var socket: BluetoothSocket? = null
     private var output: OutputStream? = null
 
     private val discovered = linkedMapOf<String, BluetoothDevice>()
-
-    private var onDevicesChanged: ((List<String>) -> Unit)? = null
-    private var onConnectionChanged:
-        ((BluetoothDevice?, Boolean) -> Unit)? = null
+    private var onDevicesChanged: ((List<EchoBluetoothDevice>) -> Unit)? = null
+    private var onConnectionChanged: ((BluetoothDevice?, Boolean) -> Unit)? = null
 
     private val receiver = object : BroadcastReceiver() {
-
         @SuppressLint("MissingPermission")
-        override fun onReceive(
-            context: Context,
-            intent: Intent
-        ) {
+        override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-
                 BluetoothDevice.ACTION_FOUND -> {
                     try {
-                        val device =
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                intent.getParcelableExtra(
-                                    BluetoothDevice.EXTRA_DEVICE,
-                                    BluetoothDevice::class.java
-                                )
-                            } else {
-                                @Suppress("DEPRECATION")
-                                intent.getParcelableExtra(
-                                    BluetoothDevice.EXTRA_DEVICE
-                                )
-                            }
-
-                        if (device == null) {
-                            Log.w(TAG, "ACTION_FOUND contained no device")
-                            return
-                        }
+                        val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(
+                                BluetoothDevice.EXTRA_DEVICE,
+                                BluetoothDevice::class.java
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        } ?: return
 
                         addDevice(device)
-
                     } catch (e: Exception) {
-                        Log.e(
-                            TAG,
-                            "Failed to process discovered Bluetooth device",
-                            e
-                        )
+                        Log.e(TAG, "Failed to process discovered Bluetooth device", e)
                     }
                 }
 
-                BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
+                BluetoothAdapter.ACTION_DISCOVERY_STARTED ->
                     Log.d(TAG, "Bluetooth discovery started")
-                }
 
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                     Log.d(TAG, "Bluetooth discovery finished")
-
-                    // Some older Bluetooth stacks don't report
-                    // already-paired devices through ACTION_FOUND.
-                    // Refresh the bonded list after discovery.
                     addBondedDevices()
                 }
             }
@@ -106,12 +84,6 @@ class EchoBluetoothManager(context: Context) {
                 addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
             }
 
-            /*
-             * Bluetooth discovery broadcasts come from the Android
-             * Bluetooth system service. Using EXPORTED here avoids
-             * Android versions where a NOT_EXPORTED dynamic receiver
-             * does not receive the system Bluetooth broadcast.
-             */
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ContextCompat.registerReceiver(
                     appContext,
@@ -121,21 +93,16 @@ class EchoBluetoothManager(context: Context) {
                 )
             } else {
                 @Suppress("DEPRECATION")
-                appContext.registerReceiver(
-                    receiver,
-                    filter
-                )
+                appContext.registerReceiver(receiver, filter)
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register Bluetooth receiver", e)
         }
     }
 
     fun setListeners(
-        devicesChanged: (List<String>) -> Unit,
-        connectionChanged:
-            (BluetoothDevice?, Boolean) -> Unit
+        devicesChanged: (List<EchoBluetoothDevice>) -> Unit,
+        connectionChanged: (BluetoothDevice?, Boolean) -> Unit
     ) {
         onDevicesChanged = devicesChanged
         onConnectionChanged = connectionChanged
@@ -143,7 +110,6 @@ class EchoBluetoothManager(context: Context) {
 
     @SuppressLint("MissingPermission")
     fun scan() {
-
         if (!hasBluetoothPermission()) {
             Log.w(TAG, "Bluetooth permission is not granted")
             publishDevices()
@@ -151,12 +117,11 @@ class EchoBluetoothManager(context: Context) {
         }
 
         try {
-            val btAdapter =
-                adapter ?: run {
-                    Log.e(TAG, "Bluetooth adapter is unavailable")
-                    publishDevices()
-                    return
-                }
+            val btAdapter = adapter ?: run {
+                Log.e(TAG, "Bluetooth adapter is unavailable")
+                publishDevices()
+                return
+            }
 
             if (!btAdapter.isEnabled) {
                 Log.w(TAG, "Bluetooth is disabled")
@@ -166,13 +131,8 @@ class EchoBluetoothManager(context: Context) {
 
             discovered.clear()
 
-            /*
-             * IMPORTANT:
-             * Add paired Classic Bluetooth devices first.
-             *
-             * This makes the old ESP32 visible even if Android's
-             * discovery broadcast doesn't provide ACTION_FOUND for it.
-             */
+            // Always include paired devices. This is especially important
+            // for ESP32 units that are already paired with the phone.
             addBondedDevices()
 
             try {
@@ -182,482 +142,214 @@ class EchoBluetoothManager(context: Context) {
             }
 
             val started = btAdapter.startDiscovery()
-
-            Log.d(
-                TAG,
-                "Bluetooth discovery requested: $started"
-            )
-
-            if (!started) {
-                Log.w(TAG, "Bluetooth discovery did not start")
-            }
-
+            Log.d(TAG, "Bluetooth discovery requested: $started")
             publishDevices()
-
         } catch (e: SecurityException) {
-            Log.e(
-                TAG,
-                "Bluetooth permission/security failure during scan",
-                e
-            )
-
+            Log.e(TAG, "Bluetooth permission/security failure during scan", e)
             publishDevices()
-
         } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "Bluetooth scan failed",
-                e
-            )
-
+            Log.e(TAG, "Bluetooth scan failed", e)
             publishDevices()
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun addBondedDevices() {
-
         try {
-            val btAdapter = adapter ?: return
-
-            btAdapter.bondedDevices.forEach { device ->
-                addDeviceInternal(device)
-            }
-
+            adapter?.bondedDevices?.forEach { addDeviceInternal(it) }
             publishDevices()
-
         } catch (e: SecurityException) {
-            Log.e(
-                TAG,
-                "Unable to read bonded Bluetooth devices",
-                e
-            )
+            Log.e(TAG, "Unable to read bonded Bluetooth devices", e)
         } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "Failed to add bonded Bluetooth devices",
-                e
-            )
+            Log.e(TAG, "Failed to add bonded Bluetooth devices", e)
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun addDevice(device: BluetoothDevice) {
-
         try {
             addDeviceInternal(device)
             publishDevices()
-
         } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "Failed to add Bluetooth device",
-                e
-            )
+            Log.e(TAG, "Failed to add Bluetooth device", e)
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun addDeviceInternal(device: BluetoothDevice) {
+        try {
+            val address = device.address
+            if (address.isNullOrBlank()) return
 
-        val address = try {
-            device.address
+            discovered[address] = device
+            Log.d(TAG, "Bluetooth device found: ${safeName(device)} [$address]")
         } catch (e: SecurityException) {
-            return
+            Log.e(TAG, "Cannot access Bluetooth device identity", e)
         }
-
-        if (address.isNullOrBlank()) {
-            return
-        }
-
-        discovered[address] = device
-
-        Log.d(
-            TAG,
-            "Bluetooth device found: ${safeName(device)} [$address]"
-        )
     }
 
     private fun publishDevices() {
-
-        val names = discovered.values
-            .map { safeName(it) }
-            .distinct()
+        val devices = discovered.values.mapNotNull { device ->
+            try {
+                val address = device.address
+                if (address.isNullOrBlank()) return@mapNotNull null
+                EchoBluetoothDevice(safeName(device), address)
+            } catch (_: Exception) {
+                null
+            }
+        }.distinctBy { it.address }
 
         mainHandler.post {
             try {
-                onDevicesChanged?.invoke(names)
+                onDevicesChanged?.invoke(devices)
             } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "Device-list callback failed",
-                    e
-                )
+                Log.e(TAG, "Device-list callback failed", e)
             }
         }
     }
 
     @SuppressLint("MissingPermission")
-    suspend fun connect(name: String): Boolean =
-        withContext(Dispatchers.IO) {
-
-            if (!hasBluetoothPermission()) {
-                Log.w(
-                    TAG,
-                    "Bluetooth permission missing during connection"
-                )
-                return@withContext false
-            }
-
-            try {
-
-                val btAdapter =
-                    adapter ?: return@withContext false
-
-                /*
-                 * Look in both discovered and bonded devices.
-                 */
-                val device =
-                    discovered.values.firstOrNull {
-                        safeName(it) == name
-                    }
-                        ?: btAdapter.bondedDevices.firstOrNull {
-                            safeName(it) == name
-                        }
-
-                if (device == null) {
-                    Log.w(
-                        TAG,
-                        "Could not find Bluetooth device named: $name"
-                    )
-
-                    notifyConnection(null, false)
-
-                    return@withContext false
-                }
-
-                Log.d(
-                    TAG,
-                    "Connecting to ${safeName(device)} [${device.address}]"
-                )
-
-                /*
-                 * Discovery interferes with RFCOMM connection.
-                 */
-                try {
-                    btAdapter.cancelDiscovery()
-                } catch (e: Exception) {
-                    Log.w(
-                        TAG,
-                        "Could not cancel discovery before connect",
-                        e
-                    )
-                }
-
-                disconnect(notify = false)
-
-                /*
-                 * Standard Bluetooth Serial Port Profile UUID.
-                 * This is the normal UUID used by ESP32 Classic
-                 * BluetoothSerial implementations.
-                 */
-                val secureSocket =
-                    device.createRfcommSocketToServiceRecord(
-                        SPP_UUID
-                    )
-
-                try {
-
-                    Log.d(
-                        TAG,
-                        "Trying secure RFCOMM connection"
-                    )
-
-                    secureSocket.connect()
-
-                    socket = secureSocket
-                    output = secureSocket.outputStream
-
-                    notifyConnection(device, true)
-
-                    Log.d(
-                        TAG,
-                        "Secure RFCOMM connection successful"
-                    )
-
-                    return@withContext true
-
-                } catch (secureError: IOException) {
-
-                    Log.w(
-                        TAG,
-                        "Secure RFCOMM failed; trying insecure RFCOMM",
-                        secureError
-                    )
-
-                    try {
-                        secureSocket.close()
-                    } catch (_: IOException) {
-                    }
-                }
-
-                /*
-                 * Some ESP32 Classic Bluetooth firmware works better
-                 * with the insecure RFCOMM socket.
-                 */
-                val insecureSocket =
-                    device.createInsecureRfcommSocketToServiceRecord(
-                        SPP_UUID
-                    )
-
-                try {
-
-                    Log.d(
-                        TAG,
-                        "Trying insecure RFCOMM connection"
-                    )
-
-                    insecureSocket.connect()
-
-                    socket = insecureSocket
-                    output = insecureSocket.outputStream
-
-                    notifyConnection(device, true)
-
-                    Log.d(
-                        TAG,
-                        "Insecure RFCOMM connection successful"
-                    )
-
-                    true
-
-                } catch (e: Exception) {
-
-                    try {
-                        insecureSocket.close()
-                    } catch (_: IOException) {
-                    }
-
-                    Log.e(
-                        TAG,
-                        "Both RFCOMM connection methods failed",
-                        e
-                    )
-
-                    notifyConnection(null, false)
-
-                    false
-                }
-
-            } catch (e: SecurityException) {
-
-                Log.e(
-                    TAG,
-                    "Bluetooth security exception during connect",
-                    e
-                )
-
-                notifyConnection(null, false)
-
-                false
-
-            } catch (e: Exception) {
-
-                Log.e(
-                    TAG,
-                    "Echo Bluetooth connection failed",
-                    e
-                )
-
-                notifyConnection(null, false)
-
-                false
-            }
+    suspend fun connect(address: String): Boolean = withContext(Dispatchers.IO) {
+        if (!hasBluetoothPermission()) {
+            Log.w(TAG, "Bluetooth permission missing during connection")
+            return@withContext false
         }
 
-    suspend fun send(command: String): Boolean =
-        withContext(Dispatchers.IO) {
+        try {
+            val btAdapter = adapter ?: return@withContext false
+            val device = discovered[address]
+                ?: btAdapter.bondedDevices.firstOrNull { it.address == address }
+                ?: btAdapter.getRemoteDevice(address)
+
+            Log.d(TAG, "Connecting to ${safeName(device)} [$address]")
 
             try {
+                btAdapter.cancelDiscovery()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not cancel discovery before connect", e)
+            }
 
-                val stream =
-                    output ?: return@withContext false
+            disconnect(notify = false)
 
-                val data =
-                    (command.trim() + "\n")
-                        .toByteArray(Charsets.UTF_8)
+            val secureSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            try {
+                secureSocket.connect()
+                socket = secureSocket
+                output = secureSocket.outputStream
+                notifyConnection(device, true)
+                Log.d(TAG, "Secure RFCOMM connection successful")
+                return@withContext true
+            } catch (secureError: IOException) {
+                Log.w(TAG, "Secure RFCOMM failed; trying insecure RFCOMM", secureError)
+                try { secureSocket.close() } catch (_: IOException) {}
+            }
 
-                stream.write(data)
-                stream.flush()
-
-                Log.d(
-                    TAG,
-                    "Sent command: ${command.trim()}"
-                )
-
+            val insecureSocket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+            try {
+                insecureSocket.connect()
+                socket = insecureSocket
+                output = insecureSocket.outputStream
+                notifyConnection(device, true)
+                Log.d(TAG, "Insecure RFCOMM connection successful")
                 true
-
-            } catch (e: IOException) {
-
-                Log.w(
-                    TAG,
-                    "Bluetooth command failed",
-                    e
-                )
-
-                false
-
             } catch (e: Exception) {
-
-                Log.e(
-                    TAG,
-                    "Unexpected Bluetooth send failure",
-                    e
-                )
-
+                try { insecureSocket.close() } catch (_: IOException) {}
+                Log.e(TAG, "Both RFCOMM connection methods failed", e)
+                notifyConnection(null, false)
                 false
             }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Bluetooth security exception during connect", e)
+            notifyConnection(null, false)
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Echo Bluetooth connection failed", e)
+            notifyConnection(null, false)
+            false
         }
-
-    fun disconnect() {
-        disconnect(notify = true)
     }
+
+    suspend fun send(command: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val stream = output ?: return@withContext false
+            stream.write((command.trim() + "\n").toByteArray(Charsets.UTF_8))
+            stream.flush()
+            Log.d(TAG, "Sent command: ${command.trim()}")
+            true
+        } catch (e: IOException) {
+            Log.w(TAG, "Bluetooth command failed", e)
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected Bluetooth send failure", e)
+            false
+        }
+    }
+
+    fun disconnect() = disconnect(notify = true)
 
     @SuppressLint("MissingPermission")
     private fun disconnect(notify: Boolean) {
-
-        try {
-            socket?.close()
-        } catch (e: IOException) {
-            Log.w(
-                TAG,
-                "Error closing Bluetooth socket",
-                e
-            )
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Unexpected error closing Bluetooth socket",
-                e
-            )
+        try { socket?.close() } catch (e: Exception) {
+            Log.w(TAG, "Error closing Bluetooth socket", e)
         }
-
         socket = null
         output = null
-
-        if (notify) {
-            notifyConnection(null, false)
-        }
+        if (notify) notifyConnection(null, false)
     }
 
-    private fun notifyConnection(
-        device: BluetoothDevice?,
-        connected: Boolean
-    ) {
+    private fun notifyConnection(device: BluetoothDevice?, connected: Boolean) {
         mainHandler.post {
             try {
-                onConnectionChanged?.invoke(
-                    device,
-                    connected
-                )
+                onConnectionChanged?.invoke(device, connected)
             } catch (e: Exception) {
-                /*
-                 * IMPORTANT:
-                 * A UI callback must never be allowed to kill the
-                 * Bluetooth coroutine/process.
-                 */
-                Log.e(
-                    TAG,
-                    "Connection callback failed",
-                    e
-                )
+                Log.e(TAG, "Connection callback failed", e)
             }
         }
     }
 
-    fun isConnected(): Boolean =
-        socket?.isConnected == true
+    fun isConnected(): Boolean = socket?.isConnected == true
 
     private fun hasBluetoothPermission(): Boolean {
-
-        return if (
-            Build.VERSION.SDK_INT <
-            Build.VERSION_CODES.S
-        ) {
-
+        return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(
                 appContext,
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
-
         } else {
-
-            val connect =
-                ContextCompat.checkSelfPermission(
-                    appContext,
-                    Manifest.permission.BLUETOOTH_CONNECT
-                ) == PackageManager.PERMISSION_GRANTED
-
-            val scan =
+            ContextCompat.checkSelfPermission(
+                appContext,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED &&
                 ContextCompat.checkSelfPermission(
                     appContext,
                     Manifest.permission.BLUETOOTH_SCAN
                 ) == PackageManager.PERMISSION_GRANTED
-
-            connect && scan
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun safeName(
-        device: BluetoothDevice
-    ): String {
-
+    private fun safeName(device: BluetoothDevice): String {
         return try {
-
-            val name =
-                device.name?.trim()
-
-            if (!name.isNullOrBlank()) {
-                name
-            } else {
-                "Unknown Echo (${device.address})"
-            }
-
-        } catch (e: SecurityException) {
-
+            device.name?.trim()?.takeIf { it.isNotBlank() } ?: "Unknown Bluetooth Device"
+        } catch (_: SecurityException) {
             "Unknown Bluetooth Device"
-
-        } catch (e: Exception) {
-
+        } catch (_: Exception) {
             "Unknown Bluetooth Device"
         }
     }
 
     fun close() {
-
         disconnect()
-
         try {
             appContext.unregisterReceiver(receiver)
         } catch (_: IllegalArgumentException) {
         } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "Failed to unregister Bluetooth receiver",
-                e
-            )
+            Log.w(TAG, "Failed to unregister Bluetooth receiver", e)
         }
     }
 
     companion object {
-
-        private const val TAG =
-            "EchoBluetooth"
-
-        private val SPP_UUID: UUID =
-            UUID.fromString(
-                "00001101-0000-1000-8000-00805F9B34FB"
-            )
+        private const val TAG = "EchoBluetooth"
+        private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     }
 }
