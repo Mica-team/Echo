@@ -14,184 +14,513 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 class AppViewModel(context: Context) : ViewModel() {
 
-    private val appContext = context.applicationContext
-    private val bluetooth = EchoBluetoothManager(appContext)
-    private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val appContext =
+        context.applicationContext
 
-    private val bluetoothExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        Log.e(TAG, "Unhandled Bluetooth coroutine failure", throwable)
-        _deviceState.value = DeviceState()
-    }
+    private val bluetooth =
+        EchoBluetoothManager(appContext)
 
-    private val _deviceState = MutableStateFlow(DeviceState())
-    val deviceState: StateFlow<DeviceState> = _deviceState.asStateFlow()
-
-    private val _telemetryData = MutableStateFlow(TelemetryData())
-    val telemetryData: StateFlow<TelemetryData> = _telemetryData.asStateFlow()
-
-    private val _availableDevices = MutableStateFlow<List<EchoBluetoothDevice>>(emptyList())
-    val availableDevices: StateFlow<List<EchoBluetoothDevice>> = _availableDevices.asStateFlow()
-
-    private val _controlCommands = MutableStateFlow(
-        listOf(
-            ControlCommand("PING", "Ping", "Check if Echo is responding", false),
-            ControlCommand("STATUS", "Status", "Request Echo system status", false),
-            ControlCommand("WIFI", "Wi-Fi", "Check Echo Wi-Fi status", false),
-            ControlCommand("OTA", "Check Update", "Check for a firmware update", false),
-            ControlCommand("REBOOT", "Reboot", "Restart Echo", false)
+    private val preferences =
+        appContext.getSharedPreferences(
+            PREFS_NAME,
+            Context.MODE_PRIVATE
         )
-    )
-    val controlCommands: StateFlow<List<ControlCommand>> = _controlCommands.asStateFlow()
 
-    private val _settings = MutableStateFlow(
-        mapOf(
-            "theme_mode" to "dark",
-            "auto_refresh" to "true",
-            "log_level" to "info"
+    private val bluetoothExceptionHandler =
+        CoroutineExceptionHandler { _, throwable ->
+
+            Log.e(
+                TAG,
+                "Unhandled Bluetooth coroutine failure",
+                throwable
+            )
+
+            _deviceState.value =
+                DeviceState()
+        }
+
+    private val _deviceState =
+        MutableStateFlow(DeviceState())
+
+    val deviceState:
+        StateFlow<DeviceState> =
+        _deviceState.asStateFlow()
+
+    private val _telemetryData =
+        MutableStateFlow(TelemetryData())
+
+    val telemetryData:
+        StateFlow<TelemetryData> =
+        _telemetryData.asStateFlow()
+
+    private val _availableDevices =
+        MutableStateFlow<List<EchoBluetoothDevice>>(
+            emptyList()
         )
-    )
-    val settings: StateFlow<Map<String, String>> = _settings.asStateFlow()
+
+    val availableDevices:
+        StateFlow<List<EchoBluetoothDevice>> =
+        _availableDevices.asStateFlow()
+
+    private val _controlCommands =
+        MutableStateFlow(
+            listOf(
+                ControlCommand(
+                    "PING",
+                    "Ping",
+                    "Check if Echo is responding",
+                    false
+                ),
+                ControlCommand(
+                    "STATUS",
+                    "Status",
+                    "Request Echo system status",
+                    false
+                ),
+                ControlCommand(
+                    "WIFI",
+                    "Wi-Fi",
+                    "Check Echo Wi-Fi status",
+                    false
+                ),
+                ControlCommand(
+                    "OTA",
+                    "Check Update",
+                    "Check for a firmware update",
+                    false
+                ),
+                ControlCommand(
+                    "REBOOT",
+                    "Reboot",
+                    "Restart Echo",
+                    false
+                )
+            )
+        )
+
+    val controlCommands:
+        StateFlow<List<ControlCommand>> =
+        _controlCommands.asStateFlow()
+
+    private val _settings =
+        MutableStateFlow(
+            mapOf(
+                "theme_mode" to "dark",
+                "auto_refresh" to "true",
+                "log_level" to "info"
+            )
+        )
+
+    val settings:
+        StateFlow<Map<String, String>> =
+        _settings.asStateFlow()
 
     init {
+
         bluetooth.setListeners(
+
             devicesChanged = { devices ->
-                _availableDevices.value = devices
+                _availableDevices.value =
+                    devices
             },
-            connectionChanged = { device, connected ->
+
+            connectionChanged = {
+                    device,
+                    connected ->
+
                 try {
-                    if (connected && device != null) {
-                        val name = try { device.name ?: "Echo" } catch (_: SecurityException) { "Echo" }
-                        val address = try { device.address } catch (_: SecurityException) { "" }
 
-                        _deviceState.value = DeviceState(
-                            name = name,
-                            address = address,
-                            isConnected = true,
-                            signalStrength = -45,
-                            batteryLevel = 100
-                        )
+                    if (
+                        connected &&
+                        device != null
+                    ) {
 
-                        if (address.isNotBlank()) {
-                            preferences.edit().putString(KEY_LAST_DEVICE_ADDRESS, address).apply()
+                        val name =
+                            try {
+                                device.name
+                                    ?: "Echo"
+                            } catch (
+                                _: SecurityException
+                            ) {
+                                "Echo"
+                            }
+
+                        val address =
+                            try {
+                                device.address
+                            } catch (
+                                _: SecurityException
+                            ) {
+                                ""
+                            }
+
+                        _deviceState.value =
+                            DeviceState(
+                                name = name,
+                                address = address,
+                                isConnected = true,
+                                // No fake RSSI.
+                                signalStrength = 0,
+                                // No fake battery.
+                                batteryLevel = 0
+                            )
+
+                        if (
+                            address.isNotBlank()
+                        ) {
+
+                            preferences
+                                .edit()
+                                .putString(
+                                    KEY_LAST_DEVICE_ADDRESS,
+                                    address
+                                )
+                                .apply()
                         }
+
                     } else {
-                        _deviceState.value = DeviceState()
+
+                        _deviceState.value =
+                            DeviceState()
                     }
+
                 } catch (e: Exception) {
-                    Log.e(TAG, "Bluetooth connection state callback failed", e)
-                    _deviceState.value = DeviceState()
+
+                    Log.e(
+                        TAG,
+                        "Bluetooth connection state callback failed",
+                        e
+                    )
+
+                    _deviceState.value =
+                        DeviceState()
                 }
             }
         )
 
-        // If the user has already used Echo before, try the last paired
-        // device automatically. Nothing is hardcoded to a particular ESP32.
-        val lastAddress = preferences.getString(KEY_LAST_DEVICE_ADDRESS, null)
-        if (!lastAddress.isNullOrBlank()) {
-            viewModelScope.launch(bluetoothExceptionHandler) {
-                val connected = bluetooth.connect(lastAddress)
+        /*
+         * Receive real data from ESP32.
+         *
+         * Current ESP32 firmware sends:
+         *
+         * TEMP:42.50
+         */
+        bluetooth.setDataListener { line ->
+
+            handleBluetoothData(line)
+        }
+
+        /*
+         * Automatically reconnect to the last
+         * Bluetooth device.
+         */
+        val lastAddress =
+            preferences.getString(
+                KEY_LAST_DEVICE_ADDRESS,
+                null
+            )
+
+        if (
+            !lastAddress.isNullOrBlank()
+        ) {
+
+            viewModelScope.launch(
+                bluetoothExceptionHandler
+            ) {
+
+                val connected =
+                    bluetooth.connect(
+                        lastAddress
+                    )
+
                 if (!connected) {
-                    Log.d(TAG, "Previous Echo device could not be reconnected")
+
+                    Log.d(
+                        TAG,
+                        "Previous Echo device could not be reconnected"
+                    )
                 }
             }
+        }
+    }
+
+    private fun handleBluetoothData(
+        line: String
+    ) {
+
+        val data =
+            line.trim()
+
+        Log.d(
+            TAG,
+            "ESP32 data: $data"
+        )
+
+        /*
+         * ESP32:
+         *
+         * TEMP:42.50
+         */
+        if (
+            data.startsWith(
+                "TEMP:",
+                ignoreCase = true
+            )
+        ) {
+
+            val valueText =
+                data.substringAfter(
+                    ":"
+                ).trim()
+
+            val temperature =
+                valueText.toFloatOrNull()
+
+            if (
+                temperature == null
+            ) {
+
+                Log.w(
+                    TAG,
+                    "Invalid temperature received: $valueText"
+                )
+
+                return
+            }
+
+            val now =
+                System.currentTimeMillis()
+
+            val current =
+                _telemetryData.value
+
+            _telemetryData.value =
+                current.copy(
+                    temperature = temperature,
+                    timestamp = now
+                )
+
+            /*
+             * The temperature is real ESP32 data,
+             * so update the device's last-update time.
+             */
+            val device =
+                _deviceState.value
+
+            if (
+                device.isConnected
+            ) {
+
+                _deviceState.value =
+                    device.copy(
+                        lastUpdate = now
+                    )
+            }
+
+            Log.d(
+                TAG,
+                "Real ESP32 CPU temperature: $temperature °C"
+            )
         }
     }
 
     fun scanDevices() {
+
         try {
+
             bluetooth.scan()
+
         } catch (e: Exception) {
-            Log.e(TAG, "Bluetooth scan request failed", e)
-            _availableDevices.value = emptyList()
+
+            Log.e(
+                TAG,
+                "Bluetooth scan request failed",
+                e
+            )
+
+            _availableDevices.value =
+                emptyList()
         }
     }
 
-    fun connectDevice(device: EchoBluetoothDevice) {
-        viewModelScope.launch(bluetoothExceptionHandler) {
+    fun connectDevice(
+        device: EchoBluetoothDevice
+    ) {
+
+        viewModelScope.launch(
+            bluetoothExceptionHandler
+        ) {
+
             try {
-                val connected = bluetooth.connect(device.address)
+
+                val connected =
+                    bluetooth.connect(
+                        device.address
+                    )
+
                 if (!connected) {
-                    _deviceState.value = DeviceState()
+
+                    _deviceState.value =
+                        DeviceState()
                 }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Bluetooth connect request failed", e)
-                _deviceState.value = DeviceState()
+
+                Log.e(
+                    TAG,
+                    "Bluetooth connect request failed",
+                    e
+                )
+
+                _deviceState.value =
+                    DeviceState()
             }
         }
     }
 
     fun disconnectDevice() {
+
         try {
+
             bluetooth.disconnect()
+
         } catch (e: Exception) {
-            Log.w(TAG, "Bluetooth disconnect failed", e)
-        }
-        _telemetryData.value = TelemetryData()
-    }
 
-    fun updateTelemetry() {
-        val currentState = _deviceState.value
-        val nextSignal = if (currentState.isConnected) -45 - Random.nextInt(20) else -90 - Random.nextInt(10)
-        val nextBattery = if (currentState.isConnected) {
-            (currentState.batteryLevel - Random.nextInt(2)).coerceAtLeast(0)
-        } else currentState.batteryLevel
-
-        _telemetryData.value = TelemetryData(
-            temperature = 18f + Random.nextFloat() * 18f,
-            humidity = 35f + Random.nextFloat() * 30f,
-            pressure = 1008f + Random.nextFloat() * 20f,
-            rssi = nextSignal,
-            timestamp = System.currentTimeMillis()
-        )
-
-        if (currentState.isConnected) {
-            _deviceState.value = currentState.copy(
-                signalStrength = nextSignal,
-                batteryLevel = nextBattery,
-                lastUpdate = System.currentTimeMillis()
+            Log.w(
+                TAG,
+                "Bluetooth disconnect failed",
+                e
             )
         }
+
+        _telemetryData.value =
+            TelemetryData()
     }
 
-    fun executeCommand(commandId: String) {
-        if (!_deviceState.value.isConnected) return
-        val command = _controlCommands.value.firstOrNull { it.id == commandId } ?: return
+    /*
+     * Kept for compatibility with existing UI.
+     *
+     * IMPORTANT:
+     * This no longer generates fake telemetry.
+     *
+     * Real telemetry arrives from the ESP32
+     * through handleBluetoothData().
+     */
+    fun updateTelemetry() {
 
-        viewModelScope.launch(bluetoothExceptionHandler) {
-            try {
-                if (bluetooth.send(command.id)) {
-                    _controlCommands.value = _controlCommands.value.map {
-                        if (it.id == commandId) it.copy(isActive = !it.isActive) else it
-                    }
+        if (
+            !_deviceState.value.isConnected
+        ) {
+            return
+        }
+
+        Log.d(
+            TAG,
+            "Waiting for real ESP32 telemetry"
+        )
+    }
+
+    fun executeCommand(
+        commandId: String
+    ) {
+
+        if (
+            !_deviceState.value.isConnected
+        ) {
+            return
+        }
+
+        val command =
+            _controlCommands.value
+                .firstOrNull {
+                    it.id == commandId
                 }
+                ?: return
+
+        viewModelScope.launch(
+            bluetoothExceptionHandler
+        ) {
+
+            try {
+
+                if (
+                    bluetooth.send(
+                        command.id
+                    )
+                ) {
+
+                    _controlCommands.value =
+                        _controlCommands.value.map {
+
+                            if (
+                                it.id == commandId
+                            ) {
+                                it.copy(
+                                    isActive =
+                                        !it.isActive
+                                )
+                            } else {
+                                it
+                            }
+                        }
+                }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Bluetooth command failed", e)
+
+                Log.e(
+                    TAG,
+                    "Bluetooth command failed",
+                    e
+                )
             }
         }
     }
 
-    fun getSetting(key: String): String = _settings.value[key].orEmpty()
+    fun getSetting(
+        key: String
+    ): String =
+        _settings.value[key].orEmpty()
 
-    fun setSetting(key: String, value: String) {
-        _settings.value = _settings.value + (key to value)
+    fun setSetting(
+        key: String,
+        value: String
+    ) {
+
+        _settings.value =
+            _settings.value +
+            (key to value)
     }
 
     override fun onCleared() {
+
         try {
+
             bluetooth.close()
+
         } catch (e: Exception) {
-            Log.w(TAG, "Bluetooth cleanup failed", e)
+
+            Log.w(
+                TAG,
+                "Bluetooth cleanup failed",
+                e
+            )
         }
+
         super.onCleared()
     }
 
     companion object {
-        private const val TAG = "EchoViewModel"
-        private const val PREFS_NAME = "echo_preferences"
-        private const val KEY_LAST_DEVICE_ADDRESS = "last_bluetooth_device_address"
+
+        private const val TAG =
+            "EchoViewModel"
+
+        private const val PREFS_NAME =
+            "echo_preferences"
+
+        private const val KEY_LAST_DEVICE_ADDRESS =
+            "last_bluetooth_device_address"
     }
 }
