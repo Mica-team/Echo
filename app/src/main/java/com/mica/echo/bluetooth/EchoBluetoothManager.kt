@@ -822,3 +822,37 @@ class EchoBluetoothManager(context: Context) {
 
         return if (
             Build
+            @SuppressLint("MissingPermission")
+private fun safeName(device: BluetoothDevice): String {
+    return try {
+        device.name?.trim()?.takeIf { it.isNotBlank() }
+            ?: "Unknown Bluetooth Device"
+    } catch (_: Exception) {
+        "Unknown Bluetooth Device"
+    }
+}
+
+fun close() {
+    disconnect()
+
+    try {
+        readerScope.cancel()
+    } catch (_: Exception) {
+    }
+
+    try {
+        appContext.unregisterReceiver(receiver)
+    } catch (_: IllegalArgumentException) {
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to unregister Bluetooth receiver", e)
+    }
+}
+
+companion object {
+    private const val TAG = "EchoBluetooth"
+
+    private val SPP_UUID: UUID =
+        UUID.fromString(
+            "00001101-0000-1000-8000-00805F9B34FB"
+        )
+}
