@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mica.echo.bluetooth.EchoBluetoothDevice
 import com.mica.echo.bluetooth.EchoBluetoothManager
 import com.mica.echo.data.ControlCommand
 import com.mica.echo.data.DeviceState
@@ -17,7 +18,9 @@ import kotlin.random.Random
 
 class AppViewModel(context: Context) : ViewModel() {
 
-    private val bluetooth = EchoBluetoothManager(context)
+    private val appContext = context.applicationContext
+    private val bluetooth = EchoBluetoothManager(appContext)
+    private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val bluetoothExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e(TAG, "Unhandled Bluetooth coroutine failure", throwable)
@@ -30,8 +33,8 @@ class AppViewModel(context: Context) : ViewModel() {
     private val _telemetryData = MutableStateFlow(TelemetryData())
     val telemetryData: StateFlow<TelemetryData> = _telemetryData.asStateFlow()
 
-    private val _availableDevices = MutableStateFlow<List<String>>(emptyList())
-    val availableDevices: StateFlow<List<String>> = _availableDevices.asStateFlow()
+    private val _availableDevices = MutableStateFlow<List<EchoBluetoothDevice>>(emptyList())
+    val availableDevices: StateFlow<List<EchoBluetoothDevice>> = _availableDevices.asStateFlow()
 
     private val _controlCommands = MutableStateFlow(
         listOf(
@@ -56,17 +59,14 @@ class AppViewModel(context: Context) : ViewModel() {
     init {
         bluetooth.setListeners(
             devicesChanged = { devices ->
-                try {
-                    _availableDevices.value = devices
-                } catch (e: Exception) {
-                    Log.w(TAG, "Could not update Bluetooth device list", e)
-                }
+                _availableDevices.value = devices
             },
             connectionChanged = { device, connected ->
                 try {
                     if (connected && device != null) {
                         val name = try { device.name ?: "Echo" } catch (_: SecurityException) { "Echo" }
                         val address = try { device.address } catch (_: SecurityException) { "" }
+
                         _deviceState.value = DeviceState(
                             name = name,
                             address = address,
@@ -74,6 +74,10 @@ class AppViewModel(context: Context) : ViewModel() {
                             signalStrength = -45,
                             batteryLevel = 100
                         )
+
+                        if (address.isNotBlank()) {
+                            preferences.edit().putString(KEY_LAST_DEVICE_ADDRESS, address).apply()
+                        }
                     } else {
                         _deviceState.value = DeviceState()
                     }
@@ -83,6 +87,18 @@ class AppViewModel(context: Context) : ViewModel() {
                 }
             }
         )
+
+        // If the user has already used Echo before, try the last paired
+        // device automatically. Nothing is hardcoded to a particular ESP32.
+        val lastAddress = preferences.getString(KEY_LAST_DEVICE_ADDRESS, null)
+        if (!lastAddress.isNullOrBlank()) {
+            viewModelScope.launch(bluetoothExceptionHandler) {
+                val connected = bluetooth.connect(lastAddress)
+                if (!connected) {
+                    Log.d(TAG, "Previous Echo device could not be reconnected")
+                }
+            }
+        }
     }
 
     fun scanDevices() {
@@ -94,10 +110,10 @@ class AppViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun connectDevice(deviceName: String) {
+    fun connectDevice(device: EchoBluetoothDevice) {
         viewModelScope.launch(bluetoothExceptionHandler) {
             try {
-                val connected = bluetooth.connect(deviceName)
+                val connected = bluetooth.connect(device.address)
                 if (!connected) {
                     _deviceState.value = DeviceState()
                 }
@@ -119,16 +135,10 @@ class AppViewModel(context: Context) : ViewModel() {
 
     fun updateTelemetry() {
         val currentState = _deviceState.value
-        val nextSignal = if (currentState.isConnected) {
-            -45 - Random.nextInt(20)
-        } else {
-            -90 - Random.nextInt(10)
-        }
+        val nextSignal = if (currentState.isConnected) -45 - Random.nextInt(20) else -90 - Random.nextInt(10)
         val nextBattery = if (currentState.isConnected) {
             (currentState.batteryLevel - Random.nextInt(2)).coerceAtLeast(0)
-        } else {
-            currentState.batteryLevel
-        }
+        } else currentState.batteryLevel
 
         _telemetryData.value = TelemetryData(
             temperature = 18f + Random.nextFloat() * 18f,
@@ -149,13 +159,11 @@ class AppViewModel(context: Context) : ViewModel() {
 
     fun executeCommand(commandId: String) {
         if (!_deviceState.value.isConnected) return
-
         val command = _controlCommands.value.firstOrNull { it.id == commandId } ?: return
 
         viewModelScope.launch(bluetoothExceptionHandler) {
             try {
-                val sent = bluetooth.send(command.id)
-                if (sent) {
+                if (bluetooth.send(command.id)) {
                     _controlCommands.value = _controlCommands.value.map {
                         if (it.id == commandId) it.copy(isActive = !it.isActive) else it
                     }
@@ -183,5 +191,7 @@ class AppViewModel(context: Context) : ViewModel() {
 
     companion object {
         private const val TAG = "EchoViewModel"
+        private const val PREFS_NAME = "echo_preferences"
+        private const val KEY_LAST_DEVICE_ADDRESS = "last_bluetooth_device_address"
     }
 }
