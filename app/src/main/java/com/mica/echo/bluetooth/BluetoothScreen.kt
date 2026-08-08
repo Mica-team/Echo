@@ -33,7 +33,10 @@ fun BluetoothScreen(viewModel: AppViewModel) {
 
     val permissions = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
         } else {
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         }
@@ -54,10 +57,14 @@ fun BluetoothScreen(viewModel: AppViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Bluetooth", style = MaterialTheme.typography.headlineMedium)
-        Text("Connect Echo Control to your Echo robot.", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "Connect Echo Control to any compatible Echo ESP32.",
+            style = MaterialTheme.typography.bodyLarge
+        )
 
         Button(onClick = {
-            if (hasPermissions()) viewModel.scanDevices() else permissionLauncher.launch(permissions)
+            if (hasPermissions()) viewModel.scanDevices()
+            else permissionLauncher.launch(permissions)
         }) {
             Text(if (hasPermissions()) "Scan nearby" else "Allow Bluetooth & Scan")
         }
@@ -68,17 +75,25 @@ fun BluetoothScreen(viewModel: AppViewModel) {
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Connection status", style = MaterialTheme.typography.titleMedium)
-                Text(if (deviceState.value.isConnected) "Connected to ${deviceState.value.name}" else "Waiting for a device")
+                Text(
+                    if (deviceState.value.isConnected) {
+                        "Connected to ${deviceState.value.name}"
+                    } else {
+                        "No Echo device connected"
+                    }
+                )
                 if (deviceState.value.isConnected) {
-                    Button(onClick = { viewModel.disconnectDevice() }) { Text("Disconnect") }
+                    Button(onClick = { viewModel.disconnectDevice() }) {
+                        Text("Disconnect")
+                    }
                 }
             }
         }
 
         if (availableDevices.value.isEmpty()) {
-            Text("No devices discovered yet. Turn on Echo and tap scan.")
+            Text("No Bluetooth devices found yet. Turn on your Echo ESP32 and tap Scan nearby.")
         } else {
-            availableDevices.value.forEach { deviceName ->
+            availableDevices.value.forEach { device ->
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier.fillMaxWidth()
@@ -87,8 +102,16 @@ fun BluetoothScreen(viewModel: AppViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(deviceName)
-                        Button(onClick = { viewModel.connectDevice(deviceName) }) { Text("Connect") }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(device.name)
+                            Text(
+                                device.address,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Button(onClick = { viewModel.connectDevice(device) }) {
+                            Text("Connect")
+                        }
                     }
                 }
             }
