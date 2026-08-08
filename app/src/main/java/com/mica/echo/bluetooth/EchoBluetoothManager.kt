@@ -25,6 +25,7 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.util.UUID
+import kotlinx.coroutines.cancel
 
 data class EchoBluetoothDevice(
     val name: String,
