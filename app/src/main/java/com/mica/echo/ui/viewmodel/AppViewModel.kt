@@ -1,6 +1,7 @@
 package com.mica.echo.ui.viewmodel
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -65,6 +66,21 @@ class AppViewModel(context: Context) : ViewModel() {
         StateFlow<List<EchoBluetoothDevice>> =
         _availableDevices.asStateFlow()
 
+    /*
+     * When this contains an SSID, the UI should display
+     * a password dialog.
+     *
+     * Example:
+     *
+     * "MyHomeWiFi"
+     */
+    private val _wifiPasswordRequest =
+        MutableStateFlow<String?>(null)
+
+    val wifiPasswordRequest:
+        StateFlow<String?> =
+        _wifiPasswordRequest.asStateFlow()
+
     private val _controlCommands =
         MutableStateFlow(
             listOf(
@@ -123,6 +139,7 @@ class AppViewModel(context: Context) : ViewModel() {
         bluetooth.setListeners(
 
             devicesChanged = { devices ->
+
                 _availableDevices.value =
                     devices
             },
@@ -162,8 +179,10 @@ class AppViewModel(context: Context) : ViewModel() {
                                 name = name,
                                 address = address,
                                 isConnected = true,
+
                                 // No fake RSSI.
                                 signalStrength = 0,
+
                                 // No fake battery.
                                 batteryLevel = 0
                             )
@@ -181,10 +200,22 @@ class AppViewModel(context: Context) : ViewModel() {
                                 .apply()
                         }
 
+                        /*
+                         * Automatically start Wi-Fi provisioning
+                         * after Echo connects.
+                         *
+                         * This detects the phone's current Wi-Fi
+                         * and asks the UI for the password.
+                         */
+                        requestWifiProvisioning()
+
                     } else {
 
                         _deviceState.value =
                             DeviceState()
+
+                        _wifiPasswordRequest.value =
+                            null
                     }
 
                 } catch (e: Exception) {
@@ -197,6 +228,9 @@ class AppViewModel(context: Context) : ViewModel() {
 
                     _deviceState.value =
                         DeviceState()
+
+                    _wifiPasswordRequest.value =
+                        null
                 }
             }
         )
@@ -245,6 +279,192 @@ class AppViewModel(context: Context) : ViewModel() {
                 }
             }
         }
+    }
+
+    /*
+     * Detect the Wi-Fi network currently being used
+     * by the Android phone.
+     *
+     * Android does NOT allow a normal application to
+     * silently read the saved Wi-Fi password.
+     *
+     * Therefore:
+     *
+     * 1. Detect SSID automatically.
+     * 2. Ask user for password through the UI.
+     * 3. submitWifiPassword() sends both to Echo.
+     */
+    fun requestWifiProvisioning() {
+
+        if (
+            !_deviceState.value.isConnected
+        ) {
+
+            Log.w(
+                TAG,
+                "Cannot configure Wi-Fi: Echo is not connected"
+            )
+
+            return
+        }
+
+        try {
+
+            val wifiManager =
+                appContext.getSystemService(
+                    Context.WIFI_SERVICE
+                ) as WifiManager
+
+            @Suppress("DEPRECATION")
+            val ssid =
+                wifiManager.connectionInfo
+                    .ssid
+                    ?.trim()
+                    ?.removePrefix("\"")
+                    ?.removeSuffix("\"")
+
+            if (
+                ssid.isNullOrBlank() ||
+                ssid == "<unknown ssid>"
+            ) {
+
+                Log.w(
+                    TAG,
+                    "Could not detect current Wi-Fi SSID"
+                )
+
+                return
+            }
+
+            Log.d(
+                TAG,
+                "Detected phone Wi-Fi SSID: $ssid"
+            )
+
+            /*
+             * Tell the UI to show the password dialog.
+             */
+            _wifiPasswordRequest.value =
+                ssid
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Failed to detect Wi-Fi SSID",
+                e
+            )
+        }
+    }
+
+    /*
+     * Called by the UI after the user enters
+     * the Wi-Fi password.
+     */
+    fun submitWifiPassword(
+        password: String
+    ) {
+
+        val ssid =
+            _wifiPasswordRequest.value
+                ?: return
+
+        if (
+            password.isBlank()
+        ) {
+
+            Log.w(
+                TAG,
+                "Wi-Fi password is empty"
+            )
+
+            return
+        }
+
+        if (
+            !_deviceState.value.isConnected
+        ) {
+
+            Log.w(
+                TAG,
+                "Cannot provision Wi-Fi: Echo disconnected"
+            )
+
+            _wifiPasswordRequest.value =
+                null
+
+            return
+        }
+
+        viewModelScope.launch(
+            bluetoothExceptionHandler
+        ) {
+
+            try {
+
+                /*
+                 * Send SSID.
+                 */
+                val ssidSent =
+                    bluetooth.send(
+                        "WIFI_SSID=$ssid"
+                    )
+
+                if (!ssidSent) {
+
+                    Log.e(
+                        TAG,
+                        "Failed to send Wi-Fi SSID"
+                    )
+
+                    return@launch
+                }
+
+                /*
+                 * Send password.
+                 */
+                val passwordSent =
+                    bluetooth.send(
+                        "WIFI_PASS=$password"
+                    )
+
+                if (!passwordSent) {
+
+                    Log.e(
+                        TAG,
+                        "Failed to send Wi-Fi password"
+                    )
+
+                    return@launch
+                }
+
+                Log.d(
+                    TAG,
+                    "Wi-Fi credentials sent to Echo"
+                )
+
+                /*
+                 * Password is no longer needed by
+                 * the Android side.
+                 */
+                _wifiPasswordRequest.value =
+                    null
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Failed to provision Echo Wi-Fi",
+                    e
+                )
+            }
+        }
+    }
+
+    fun cancelWifiProvisioning() {
+
+        _wifiPasswordRequest.value =
+            null
     }
 
     private fun handleBluetoothData(
@@ -299,13 +519,14 @@ class AppViewModel(context: Context) : ViewModel() {
 
             _telemetryData.value =
                 current.copy(
-                    temperature = temperature,
-                    timestamp = now
+                    temperature =
+                        temperature,
+                    timestamp =
+                        now
                 )
 
             /*
-             * The temperature is real ESP32 data,
-             * so update the device's last-update time.
+             * Temperature is real ESP32 data.
              */
             val device =
                 _deviceState.value
@@ -316,7 +537,8 @@ class AppViewModel(context: Context) : ViewModel() {
 
                 _deviceState.value =
                     device.copy(
-                        lastUpdate = now
+                        lastUpdate =
+                            now
                     )
             }
 
@@ -398,16 +620,15 @@ class AppViewModel(context: Context) : ViewModel() {
 
         _telemetryData.value =
             TelemetryData()
+
+        _wifiPasswordRequest.value =
+            null
     }
 
     /*
      * Kept for compatibility with existing UI.
      *
-     * IMPORTANT:
-     * This no longer generates fake telemetry.
-     *
-     * Real telemetry arrives from the ESP32
-     * through handleBluetoothData().
+     * No fake telemetry.
      */
     fun updateTelemetry() {
 
@@ -430,6 +651,7 @@ class AppViewModel(context: Context) : ViewModel() {
         if (
             !_deviceState.value.isConnected
         ) {
+
             return
         }
 
@@ -458,11 +680,14 @@ class AppViewModel(context: Context) : ViewModel() {
                             if (
                                 it.id == commandId
                             ) {
+
                                 it.copy(
                                     isActive =
                                         !it.isActive
                                 )
+
                             } else {
+
                                 it
                             }
                         }
@@ -482,7 +707,8 @@ class AppViewModel(context: Context) : ViewModel() {
     fun getSetting(
         key: String
     ): String =
-        _settings.value[key].orEmpty()
+        _settings.value[key]
+            .orEmpty()
 
     fun setSetting(
         key: String,
