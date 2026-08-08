@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.google.firebase.auth.FirebaseAuth
 import com.mica.echo.auth.AuthenticationScreen
 import com.mica.echo.navigation.AppNavHost
 import com.mica.echo.ui.theme.EchoControlTheme
@@ -24,7 +25,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             EchoControlTheme {
                 val viewModel = remember { AppViewModel(applicationContext) }
-                var loggedIn by remember { mutableStateOf(false) }
+                var loggedIn by remember {
+                    mutableStateOf(FirebaseAuth.getInstance().currentUser != null)
+                }
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
