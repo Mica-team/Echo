@@ -1,5 +1,7 @@
 package com.mica.echo.navigation
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -16,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -42,8 +45,9 @@ fun AppNavHost(
         AppDestination.Settings
     )
 
-    val wifiSsid by viewModel.wifiPasswordRequest.collectAsState()
+    val wifiRequest by viewModel.wifiPasswordRequest.collectAsState()
     var wifiPassword by remember { mutableStateOf("") }
+    var manualSsid by remember { mutableStateOf("") }
 
     Scaffold(
         bottomBar = {
@@ -56,19 +60,12 @@ fun AppNavHost(
                         selected = currentRoute == destination.route,
                         onClick = {
                             navController.navigate(destination.route) {
-                                popUpTo(navController.graph.startDestinationId) {
-                                    saveState = true
-                                }
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                         },
-                        icon = {
-                            Icon(
-                                destination.icon,
-                                contentDescription = destination.label
-                            )
-                        },
+                        icon = { Icon(destination.icon, contentDescription = destination.label) },
                         label = { Text(destination.label) }
                     )
                 }
@@ -80,38 +77,41 @@ fun AppNavHost(
             startDestination = AppDestination.Dashboard.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(AppDestination.Dashboard.route) {
-                DashboardScreen(viewModel)
-            }
-            composable(AppDestination.Bluetooth.route) {
-                BluetoothScreen(viewModel)
-            }
-            composable(AppDestination.Control.route) {
-                ControlScreen(viewModel)
-            }
-            composable(AppDestination.Status.route) {
-                StatusScreen(viewModel)
-            }
-            composable(AppDestination.Settings.route) {
-                SettingsScreen(viewModel)
-            }
+            composable(AppDestination.Dashboard.route) { DashboardScreen(viewModel) }
+            composable(AppDestination.Bluetooth.route) { BluetoothScreen(viewModel) }
+            composable(AppDestination.Control.route) { ControlScreen(viewModel) }
+            composable(AppDestination.Status.route) { StatusScreen(viewModel) }
+            composable(AppDestination.Settings.route) { SettingsScreen(viewModel) }
         }
     }
 
-    if (!wifiSsid.isNullOrBlank()) {
+    // wifiRequest == null means no setup is pending.
+    // wifiRequest == "" means Android could not read the SSID, so show the dialog
+    // and let the user enter the SSID manually.
+    if (wifiRequest != null) {
         AlertDialog(
             onDismissRequest = {
                 wifiPassword = ""
+                manualSsid = ""
                 viewModel.cancelWifiProvisioning()
             },
-            title = {
-                Text("Connect Echo to Wi-Fi")
-            },
+            title = { Text("Connect Echo to Wi-Fi") },
             text = {
-                androidx.compose.foundation.layout.Column {
-                    Text("Wi-Fi network detected:")
-                    Text(wifiSsid!!)
-                    Text("Enter the Wi-Fi password. It will be sent to Echo over the existing Bluetooth connection.")
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (wifiRequest!!.isBlank()) {
+                        Text("Android could not read the current Wi-Fi network automatically.")
+                        OutlinedTextField(
+                            value = manualSsid,
+                            onValueChange = { manualSsid = it },
+                            label = { Text("Wi-Fi SSID") },
+                            singleLine = true
+                        )
+                    } else {
+                        Text("Wi-Fi network detected:")
+                        Text(wifiRequest!!)
+                    }
+
+                    Text("Enter the Wi-Fi password. It will be sent to Echo over Bluetooth.")
                     OutlinedTextField(
                         value = wifiPassword,
                         onValueChange = { wifiPassword = it },
@@ -122,23 +122,25 @@ fun AppNavHost(
             },
             confirmButton = {
                 Button(
-                    enabled = wifiPassword.isNotEmpty(),
+                    enabled = wifiPassword.isNotEmpty() &&
+                        (wifiRequest!!.isNotBlank() || manualSsid.isNotBlank()),
                     onClick = {
                         val password = wifiPassword
+                        val ssid = manualSsid
                         wifiPassword = ""
-                        viewModel.submitWifiPassword(password)
+                        manualSsid = ""
+                        viewModel.submitWifiPassword(password, ssid)
                     }
                 ) {
                     Text("Send to Echo")
                 }
             },
             dismissButton = {
-                Button(
-                    onClick = {
-                        wifiPassword = ""
-                        viewModel.cancelWifiProvisioning()
-                    }
-                ) {
+                Button(onClick = {
+                    wifiPassword = ""
+                    manualSsid = ""
+                    viewModel.cancelWifiProvisioning()
+                }) {
                     Text("Cancel")
                 }
             }
