@@ -2,7 +2,6 @@ package com.mica.echo.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -36,13 +35,11 @@ fun DashboardScreen(viewModel: AppViewModel) {
         Text("Dashboard", style = MaterialTheme.typography.headlineMedium)
         Text("Overview of the connected Echo system.", style = MaterialTheme.typography.bodyLarge)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { viewModel.scanDevices(); viewModel.updateTelemetry() }) {
-                Text("Refresh")
-            }
-            Button(onClick = { viewModel.connectDevice("Echo Device 1") }) {
-                Text("Connect demo")
-            }
+        Button(onClick = {
+            viewModel.scanDevices()
+            viewModel.updateTelemetry()
+        }) {
+            Text("Refresh Bluetooth")
         }
 
         Card(
