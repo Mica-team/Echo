@@ -53,7 +53,11 @@ class AppViewModel(context: Context) : ViewModel() {
     val controlCommands: StateFlow<List<ControlCommand>> = _controlCommands.asStateFlow()
 
     private val _settings = MutableStateFlow(
-        mapOf("theme_mode" to "dark", "auto_refresh" to "true", "log_level" to "info")
+        mapOf(
+            "theme_mode" to preferences.getString(KEY_THEME_MODE, "dark").orEmpty(),
+            "auto_refresh" to "true",
+            "log_level" to "info"
+        )
     )
     val settings: StateFlow<Map<String, String>> = _settings.asStateFlow()
 
@@ -122,8 +126,6 @@ class AppViewModel(context: Context) : ViewModel() {
                 Log.d(TAG, "Detected phone Wi-Fi SSID: $ssid")
                 _wifiPasswordRequest.value = ssid
             } else {
-                // Still show the dialog. The user can enter the SSID manually if Android
-                // does not allow the app to read it automatically.
                 Log.w(TAG, "Could not automatically detect Wi-Fi SSID; asking user")
                 _wifiPasswordRequest.value = ""
             }
@@ -227,6 +229,9 @@ class AppViewModel(context: Context) : ViewModel() {
 
     fun setSetting(key: String, value: String) {
         _settings.value = _settings.value + (key to value)
+        if (key == KEY_THEME_MODE) {
+            preferences.edit().putString(KEY_THEME_MODE, value).apply()
+        }
     }
 
     override fun onCleared() {
@@ -238,5 +243,6 @@ class AppViewModel(context: Context) : ViewModel() {
         private const val TAG = "EchoViewModel"
         private const val PREFS_NAME = "echo_preferences"
         private const val KEY_LAST_DEVICE_ADDRESS = "last_bluetooth_device_address"
+        private const val KEY_THEME_MODE = "theme_mode"
     }
 }
