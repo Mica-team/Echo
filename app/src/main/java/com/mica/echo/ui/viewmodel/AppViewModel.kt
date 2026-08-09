@@ -1,7 +1,6 @@
 package com.mica.echo.ui.viewmodel
 
 import android.content.Context
-import android.net.wifi.WifiManager
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,6 +10,7 @@ import com.mica.echo.data.ControlCommand
 import com.mica.echo.data.DeviceState
 import com.mica.echo.data.TelemetryData
 import com.mica.echo.settings.WifiNetwork
+import com.mica.echo.settings.WifiSecurity
 import com.mica.echo.settings.WifiManager as EchoWifiManager
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.delay
@@ -49,8 +49,13 @@ class AppViewModel(context: Context) : ViewModel() {
     private val _wifiSavedSsid = MutableStateFlow<String?>(wifi.savedSsid())
     val wifiSavedSsid: StateFlow<String?> = _wifiSavedSsid.asStateFlow()
 
+    // Used by the existing ESP32 provisioning flow over Bluetooth.
+    // null = no dialog. Empty string = show the dialog and ask for SSID manually.
     private val _wifiPasswordRequest = MutableStateFlow<WifiNetwork?>(null)
     val wifiPasswordRequest: StateFlow<WifiNetwork?> = _wifiPasswordRequest.asStateFlow()
+
+    private val _espWifiPasswordRequest = MutableStateFlow<String?>(null)
+    val espWifiPasswordRequest: StateFlow<String?> = _espWifiPasswordRequest.asStateFlow()
 
     private val _wifiStatus = MutableStateFlow<String?>(null)
     val wifiStatus: StateFlow<String?> = _wifiStatus.asStateFlow()
@@ -97,13 +102,17 @@ class AppViewModel(context: Context) : ViewModel() {
                                 .putString(KEY_LAST_DEVICE_ADDRESS, address)
                                 .apply()
                         }
+
+                        requestEspWifiProvisioning()
                     } else {
                         _deviceState.value = DeviceState()
+                        _espWifiPasswordRequest.value = null
                         _wifiPasswordRequest.value = null
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Bluetooth connection state callback failed", e)
                     _deviceState.value = DeviceState()
+                    _espWifiPasswordRequest.value = null
                     _wifiPasswordRequest.value = null
                 }
             }
@@ -119,6 +128,8 @@ class AppViewModel(context: Context) : ViewModel() {
         }
     }
 
+    // ---------- Phone Wi-Fi settings ----------
+
     fun scanWifiNetworks() {
         if (!wifi.hasScanPermission()) {
             _wifiStatus.value = "Wi-Fi scan permission is required"
@@ -128,7 +139,6 @@ class AppViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             try {
                 wifi.scan()
-                // Give Android time to deliver the fresh scan result.
                 delay(1500)
                 _wifiNetworks.value = wifi.scan()
                 _wifiCurrentSsid.value = wifi.currentSsid()
@@ -146,7 +156,7 @@ class AppViewModel(context: Context) : ViewModel() {
     }
 
     fun connectToWifi(network: WifiNetwork, password: String = "") {
-        if (network.security != com.mica.echo.settings.WifiSecurity.OPEN && password.isBlank()) return
+        if (network.security != WifiSecurity.OPEN && password.isBlank()) return
 
         viewModelScope.launch {
             val result = wifi.connect(network, password)
@@ -161,10 +171,6 @@ class AppViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun connectToSelectedWifi(network: WifiNetwork, password: String) {
-        connectToWifi(network, password)
-    }
-
     fun cancelWifiPasswordRequest() {
         _wifiPasswordRequest.value = null
     }
@@ -173,6 +179,46 @@ class AppViewModel(context: Context) : ViewModel() {
         wifi.forgetSavedNetwork()
         _wifiSavedSsid.value = null
         _wifiStatus.value = "Saved Wi-Fi network cleared"
+    }
+
+    // ---------- ESP32 Wi-Fi provisioning over Bluetooth ----------
+
+    fun requestEspWifiProvisioning() {
+        if (!_deviceState.value.isConnected) return
+
+        try {
+            val androidWifi = appContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val rawSsid = androidWifi.connectionInfo?.ssid
+            val ssid = rawSsid?.trim()?.removePrefix("\"")?.removeSuffix("\"")
+
+            _espWifiPasswordRequest.value =
+                if (!ssid.isNullOrBlank() && ssid != "<unknown ssid>") ssid else ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to detect phone Wi-Fi SSID", e)
+            _espWifiPasswordRequest.value = ""
+        }
+    }
+
+    fun submitEspWifiPassword(password: String, manualSsid: String = "") {
+        val detectedSsid = _espWifiPasswordRequest.value
+        val ssid = if (!detectedSsid.isNullOrBlank()) detectedSsid else manualSsid.trim()
+
+        if (ssid.isBlank() || password.isBlank() || !_deviceState.value.isConnected) return
+
+        viewModelScope.launch(bluetoothExceptionHandler) {
+            try {
+                if (!bluetooth.send("WIFI_SSID=$ssid")) return@launch
+                if (!bluetooth.send("WIFI_PASS=$password")) return@launch
+                _espWifiPasswordRequest.value = null
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to provision Echo Wi-Fi", e)
+            }
+        }
+    }
+
+    fun cancelEspWifiProvisioning() {
+        _espWifiPasswordRequest.value = null
     }
 
     private fun handleBluetoothData(line: String) {
@@ -211,6 +257,7 @@ class AppViewModel(context: Context) : ViewModel() {
         try { bluetooth.disconnect() } catch (e: Exception) { Log.w(TAG, "Bluetooth disconnect failed", e) }
         _telemetryData.value = TelemetryData()
         _wifiPasswordRequest.value = null
+        _espWifiPasswordRequest.value = null
     }
 
     fun updateTelemetry() {
