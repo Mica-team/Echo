@@ -45,7 +45,9 @@ fun AppNavHost(
         AppDestination.Settings
     )
 
-    val wifiRequest by viewModel.wifiPasswordRequest.collectAsState()
+    // This is the ESP32 provisioning request triggered after Bluetooth connects.
+    // null = no setup pending, blank = SSID could not be detected automatically.
+    val espWifiSsid by viewModel.espWifiPasswordRequest.collectAsState()
     var wifiPassword by remember { mutableStateOf("") }
     var manualSsid by remember { mutableStateOf("") }
 
@@ -85,20 +87,17 @@ fun AppNavHost(
         }
     }
 
-    // wifiRequest == null means no setup is pending.
-    // wifiRequest == "" means Android could not read the SSID, so show the dialog
-    // and let the user enter the SSID manually.
-    if (wifiRequest != null) {
+    if (espWifiSsid != null) {
         AlertDialog(
             onDismissRequest = {
                 wifiPassword = ""
                 manualSsid = ""
-                viewModel.cancelWifiProvisioning()
+                viewModel.cancelEspWifiProvisioning()
             },
             title = { Text("Connect Echo to Wi-Fi") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (wifiRequest!!.isBlank()) {
+                    if (espWifiSsid!!.isBlank()) {
                         Text("Android could not read the current Wi-Fi network automatically.")
                         OutlinedTextField(
                             value = manualSsid,
@@ -108,7 +107,7 @@ fun AppNavHost(
                         )
                     } else {
                         Text("Wi-Fi network detected:")
-                        Text(wifiRequest!!)
+                        Text(espWifiSsid!!)
                     }
 
                     Text("Enter the Wi-Fi password. It will be sent to Echo over Bluetooth.")
@@ -123,13 +122,13 @@ fun AppNavHost(
             confirmButton = {
                 Button(
                     enabled = wifiPassword.isNotEmpty() &&
-                        (wifiRequest!!.isNotBlank() || manualSsid.isNotBlank()),
+                        (espWifiSsid!!.isNotBlank() || manualSsid.isNotBlank()),
                     onClick = {
                         val password = wifiPassword
                         val ssid = manualSsid
                         wifiPassword = ""
                         manualSsid = ""
-                        viewModel.submitWifiPassword(password, ssid)
+                        viewModel.submitEspWifiPassword(password, ssid)
                     }
                 ) {
                     Text("Send to Echo")
@@ -139,7 +138,7 @@ fun AppNavHost(
                 Button(onClick = {
                     wifiPassword = ""
                     manualSsid = ""
-                    viewModel.cancelWifiProvisioning()
+                    viewModel.cancelEspWifiProvisioning()
                 }) {
                     Text("Cancel")
                 }
