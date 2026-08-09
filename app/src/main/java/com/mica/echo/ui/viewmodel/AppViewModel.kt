@@ -10,7 +10,10 @@ import com.mica.echo.bluetooth.EchoBluetoothManager
 import com.mica.echo.data.ControlCommand
 import com.mica.echo.data.DeviceState
 import com.mica.echo.data.TelemetryData
+import com.mica.echo.settings.WifiNetwork
+import com.mica.echo.settings.WifiManager as EchoWifiManager
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +23,7 @@ class AppViewModel(context: Context) : ViewModel() {
 
     private val appContext = context.applicationContext
     private val bluetooth = EchoBluetoothManager(appContext)
+    private val wifi = EchoWifiManager(appContext)
     private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val bluetoothExceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -36,10 +40,20 @@ class AppViewModel(context: Context) : ViewModel() {
     private val _availableDevices = MutableStateFlow<List<EchoBluetoothDevice>>(emptyList())
     val availableDevices: StateFlow<List<EchoBluetoothDevice>> = _availableDevices.asStateFlow()
 
-    // null = no dialog. Empty string = dialog should be shown but Android could not
-    // automatically read the SSID, so the user must enter it.
-    private val _wifiPasswordRequest = MutableStateFlow<String?>(null)
-    val wifiPasswordRequest: StateFlow<String?> = _wifiPasswordRequest.asStateFlow()
+    private val _wifiNetworks = MutableStateFlow<List<WifiNetwork>>(emptyList())
+    val wifiNetworks: StateFlow<List<WifiNetwork>> = _wifiNetworks.asStateFlow()
+
+    private val _wifiCurrentSsid = MutableStateFlow<String?>(wifi.currentSsid())
+    val wifiCurrentSsid: StateFlow<String?> = _wifiCurrentSsid.asStateFlow()
+
+    private val _wifiSavedSsid = MutableStateFlow<String?>(wifi.savedSsid())
+    val wifiSavedSsid: StateFlow<String?> = _wifiSavedSsid.asStateFlow()
+
+    private val _wifiPasswordRequest = MutableStateFlow<WifiNetwork?>(null)
+    val wifiPasswordRequest: StateFlow<WifiNetwork?> = _wifiPasswordRequest.asStateFlow()
+
+    private val _wifiStatus = MutableStateFlow<String?>(null)
+    val wifiStatus: StateFlow<String?> = _wifiStatus.asStateFlow()
 
     private val _controlCommands = MutableStateFlow(
         listOf(
@@ -83,9 +97,6 @@ class AppViewModel(context: Context) : ViewModel() {
                                 .putString(KEY_LAST_DEVICE_ADDRESS, address)
                                 .apply()
                         }
-
-                        // Always open the Wi-Fi setup prompt after a successful Echo connection.
-                        requestWifiProvisioning()
                     } else {
                         _deviceState.value = DeviceState()
                         _wifiPasswordRequest.value = null
@@ -108,61 +119,60 @@ class AppViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun requestWifiProvisioning() {
-        if (!_deviceState.value.isConnected) return
-
-        try {
-            val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-            @Suppress("DEPRECATION")
-            val rawSsid = wifiManager.connectionInfo?.ssid
-
-            val ssid = rawSsid
-                ?.trim()
-                ?.removePrefix("\"")
-                ?.removeSuffix("\"")
-
-            if (!ssid.isNullOrBlank() && ssid != "<unknown ssid>") {
-                Log.d(TAG, "Detected phone Wi-Fi SSID: $ssid")
-                _wifiPasswordRequest.value = ssid
-            } else {
-                Log.w(TAG, "Could not automatically detect Wi-Fi SSID; asking user")
-                _wifiPasswordRequest.value = ""
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to detect Wi-Fi SSID", e)
-            _wifiPasswordRequest.value = ""
+    fun scanWifiNetworks() {
+        if (!wifi.hasScanPermission()) {
+            _wifiStatus.value = "Wi-Fi scan permission is required"
+            return
         }
-    }
 
-    fun submitWifiPassword(password: String, manualSsid: String = "") {
-        val detectedSsid = _wifiPasswordRequest.value
-        val ssid = if (!detectedSsid.isNullOrBlank()) detectedSsid else manualSsid.trim()
-
-        if (ssid.isBlank() || password.isBlank() || !_deviceState.value.isConnected) return
-
-        viewModelScope.launch(bluetoothExceptionHandler) {
+        viewModelScope.launch {
             try {
-                if (!bluetooth.send("WIFI_SSID=$ssid")) {
-                    Log.e(TAG, "Failed to send Wi-Fi SSID")
-                    return@launch
-                }
-
-                if (!bluetooth.send("WIFI_PASS=$password")) {
-                    Log.e(TAG, "Failed to send Wi-Fi password")
-                    return@launch
-                }
-
-                Log.d(TAG, "Wi-Fi credentials sent to Echo")
-                _wifiPasswordRequest.value = null
+                wifi.scan()
+                // Give Android time to deliver the fresh scan result.
+                delay(1500)
+                _wifiNetworks.value = wifi.scan()
+                _wifiCurrentSsid.value = wifi.currentSsid()
+                _wifiStatus.value = null
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to provision Echo Wi-Fi", e)
+                Log.e(TAG, "Wi-Fi scan failed", e)
+                _wifiStatus.value = "Unable to scan for Wi-Fi networks"
             }
         }
     }
 
-    fun cancelWifiProvisioning() {
+    fun requestWifiPassword(network: WifiNetwork) {
+        _wifiPasswordRequest.value = network
+        _wifiStatus.value = null
+    }
+
+    fun connectToWifi(network: WifiNetwork, password: String = "") {
+        if (network.security != com.mica.echo.settings.WifiSecurity.OPEN && password.isBlank()) return
+
+        viewModelScope.launch {
+            val result = wifi.connect(network, password)
+            if (result.isSuccess) {
+                _wifiSavedSsid.value = network.ssid
+                _wifiPasswordRequest.value = null
+                _wifiStatus.value = "Saved ${network.ssid}. Android will manage reconnection."
+                _wifiCurrentSsid.value = network.ssid
+            } else {
+                _wifiStatus.value = result.exceptionOrNull()?.message ?: "Could not save Wi-Fi network"
+            }
+        }
+    }
+
+    fun connectToSelectedWifi(network: WifiNetwork, password: String) {
+        connectToWifi(network, password)
+    }
+
+    fun cancelWifiPasswordRequest() {
         _wifiPasswordRequest.value = null
+    }
+
+    fun forgetSavedWifi() {
+        wifi.forgetSavedNetwork()
+        _wifiSavedSsid.value = null
+        _wifiStatus.value = "Saved Wi-Fi network cleared"
     }
 
     private fun handleBluetoothData(line: String) {
@@ -176,7 +186,6 @@ class AppViewModel(context: Context) : ViewModel() {
             if (_deviceState.value.isConnected) {
                 _deviceState.value = _deviceState.value.copy(lastUpdate = now)
             }
-            Log.d(TAG, "Real ESP32 CPU temperature: $temperature °C")
         }
     }
 
