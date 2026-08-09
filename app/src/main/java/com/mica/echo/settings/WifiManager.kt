@@ -3,15 +3,18 @@ package com.mica.echo.settings
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 
 class WifiManager(private val context: Context) {
     private val appContext = context.applicationContext
     private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    private val locationManager = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun hasScanPermission(): Boolean =
@@ -27,11 +30,28 @@ class WifiManager(private val context: Context) {
                 Manifest.permission.NEARBY_WIFI_DEVICES
             ) == PackageManager.PERMISSION_GRANTED
 
-    fun scan(): List<WifiNetwork> {
+    fun locationServicesEnabled(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            locationManager.isLocationEnabled
+        } else {
+            @Suppress("DEPRECATION")
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+
+    /**
+     * Wi-Fi scanning is asynchronous. The old implementation called
+     * startScan() and immediately read scanResults, which returns the
+     * previous scan and can therefore be empty on the first attempt.
+     */
+    suspend fun scan(): List<WifiNetwork> {
         if (!hasScanPermission()) return emptyList()
+        if (!locationServicesEnabled()) return emptyList()
 
         @Suppress("DEPRECATION")
-        wifiManager.startScan()
+        val started = wifiManager.startScan()
+
+        if (started) delay(2500) else delay(500)
 
         @Suppress("DEPRECATION")
         return wifiManager.scanResults
@@ -39,7 +59,7 @@ class WifiManager(private val context: Context) {
             .filter { it.SSID.isNotBlank() }
             .distinctBy { it.SSID }
             .sortedByDescending { it.level }
-            .map { result -> result.toWifiNetwork() }
+            .map { it.toWifiNetwork() }
             .toList()
     }
 
@@ -56,6 +76,9 @@ class WifiManager(private val context: Context) {
     fun connect(network: WifiNetwork, password: String): Result<Unit> {
         if (!hasSuggestionPermission()) {
             return Result.failure(IllegalStateException("Wi-Fi device permission is required"))
+        }
+        if (network.security != WifiSecurity.OPEN && password.isBlank()) {
+            return Result.failure(IllegalArgumentException("Wi-Fi password is required"))
         }
         if (network.security == WifiSecurity.WEP) {
             return Result.failure(IllegalArgumentException("WEP networks are not supported"))
@@ -105,14 +128,12 @@ class WifiManager(private val context: Context) {
     private fun removeSuggestion(ssid: String) {
         if (!hasSuggestionPermission()) return
 
-        // Android requires the exact suggestion object for removal. Re-create the
-        // minimal suggestion for the remembered SSID; the system matches it by SSID.
         try {
             wifiManager.removeNetworkSuggestions(
                 listOf(WifiNetworkSuggestion.Builder().setSsid(ssid).build())
             )
         } catch (_: Exception) {
-            // The old suggestion may already have been removed by the system.
+            // The old suggestion may already have been removed by Android.
         }
     }
 
