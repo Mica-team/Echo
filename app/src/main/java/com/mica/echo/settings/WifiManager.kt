@@ -1,0 +1,151 @@
+package com.mica.echo.settings
+
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.wifi.ScanResult
+import android.net.wifi.WifiManager
+import android.net.wifi.WifiNetworkSuggestion
+import android.os.Build
+import androidx.core.content.ContextCompat
+
+class WifiManager(private val context: Context) {
+    private val appContext = context.applicationContext
+    private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    fun hasScanPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+    fun hasSuggestionPermission(): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(
+                appContext,
+                Manifest.permission.NEARBY_WIFI_DEVICES
+            ) == PackageManager.PERMISSION_GRANTED
+
+    fun scan(): List<WifiNetwork> {
+        if (!hasScanPermission()) return emptyList()
+
+        @Suppress("DEPRECATION")
+        wifiManager.startScan()
+
+        @Suppress("DEPRECATION")
+        return wifiManager.scanResults
+            .asSequence()
+            .filter { it.SSID.isNotBlank() }
+            .distinctBy { it.SSID }
+            .sortedByDescending { it.level }
+            .map { result -> result.toWifiNetwork() }
+            .toList()
+    }
+
+    fun currentSsid(): String? {
+        if (!hasScanPermission()) return null
+
+        @Suppress("DEPRECATION")
+        return wifiManager.connectionInfo?.ssid
+            ?.removePrefix("\"")
+            ?.removeSuffix("\"")
+            ?.takeUnless { it.isBlank() || it == "<unknown ssid>" }
+    }
+
+    fun connect(network: WifiNetwork, password: String): Result<Unit> {
+        if (!hasSuggestionPermission()) {
+            return Result.failure(IllegalStateException("Wi-Fi device permission is required"))
+        }
+        if (network.security == WifiSecurity.WEP) {
+            return Result.failure(IllegalArgumentException("WEP networks are not supported"))
+        }
+
+        return try {
+            val previousSsid = preferences.getString(KEY_SAVED_SSID, null)
+            if (!previousSsid.isNullOrBlank() && previousSsid != network.ssid) {
+                removeSuggestion(previousSsid)
+            }
+
+            val builder = WifiNetworkSuggestion.Builder().setSsid(network.ssid)
+            when (network.security) {
+                WifiSecurity.OPEN -> Unit
+                WifiSecurity.WPA3 -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        builder.setWpa3Passphrase(password)
+                    } else {
+                        builder.setWpa2Passphrase(password)
+                    }
+                }
+                WifiSecurity.WPA2 -> builder.setWpa2Passphrase(password)
+                WifiSecurity.WEP -> error("WEP is handled above")
+            }
+
+            val suggestion = builder.build()
+            val status = wifiManager.addNetworkSuggestions(listOf(suggestion))
+            if (status != WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
+                return Result.failure(IllegalStateException("Android rejected the Wi-Fi suggestion: $status"))
+            }
+
+            preferences.edit().putString(KEY_SAVED_SSID, network.ssid).apply()
+            Result.success(Unit)
+        } catch (security: SecurityException) {
+            Result.failure(security)
+        }
+    }
+
+    fun forgetSavedNetwork() {
+        val ssid = preferences.getString(KEY_SAVED_SSID, null) ?: return
+        removeSuggestion(ssid)
+        preferences.edit().remove(KEY_SAVED_SSID).apply()
+    }
+
+    fun savedSsid(): String? = preferences.getString(KEY_SAVED_SSID, null)
+
+    private fun removeSuggestion(ssid: String) {
+        if (!hasSuggestionPermission()) return
+
+        // Android requires the exact suggestion object for removal. Re-create the
+        // minimal suggestion for the remembered SSID; the system matches it by SSID.
+        try {
+            wifiManager.removeNetworkSuggestions(
+                listOf(WifiNetworkSuggestion.Builder().setSsid(ssid).build())
+            )
+        } catch (_: Exception) {
+            // The old suggestion may already have been removed by the system.
+        }
+    }
+
+    private fun ScanResult.toWifiNetwork(): WifiNetwork {
+        val capabilities = capabilities.uppercase()
+        val security = when {
+            capabilities.contains("WEP") -> WifiSecurity.WEP
+            capabilities.contains("SAE") -> WifiSecurity.WPA3
+            capabilities.contains("WPA") || capabilities.contains("PSK") -> WifiSecurity.WPA2
+            else -> WifiSecurity.OPEN
+        }
+        return WifiNetwork(
+            ssid = SSID,
+            signalLevel = level,
+            security = security
+        )
+    }
+
+    companion object {
+        private const val PREFS_NAME = "echo_wifi_preferences"
+        private const val KEY_SAVED_SSID = "saved_wifi_ssid"
+    }
+}
+
+data class WifiNetwork(
+    val ssid: String,
+    val signalLevel: Int,
+    val security: WifiSecurity
+)
+
+enum class WifiSecurity {
+    OPEN,
+    WPA2,
+    WPA3,
+    WEP
+}
