@@ -1,7 +1,10 @@
 package com.mica.echo.settings
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.wifi.ScanResult
@@ -9,7 +12,8 @@ import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class WifiManager(private val context: Context) {
     private val appContext = context.applicationContext
@@ -40,27 +44,68 @@ class WifiManager(private val context: Context) {
         }
 
     /**
-     * Wi-Fi scanning is asynchronous. The old implementation called
-     * startScan() and immediately read scanResults, which returns the
-     * previous scan and can therefore be empty on the first attempt.
+     * Start a real asynchronous Wi-Fi scan and wait for Android's scan-result
+     * broadcast. Reading scanResults immediately after startScan() can return
+     * the old/empty cache, which made the Wi-Fi picker appear empty.
      */
     suspend fun scan(): List<WifiNetwork> {
         if (!hasScanPermission()) return emptyList()
         if (!locationServicesEnabled()) return emptyList()
+        if (!wifiManager.isWifiEnabled) return emptyList()
 
-        @Suppress("DEPRECATION")
-        val started = wifiManager.startScan()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
+                    result = true
+                }
+            }
 
-        if (started) delay(2500) else delay(500)
+            private var result = false
+        }
 
-        @Suppress("DEPRECATION")
-        return wifiManager.scanResults
-            .asSequence()
-            .filter { it.SSID.isNotBlank() }
-            .distinctBy { it.SSID }
-            .sortedByDescending { it.level }
-            .map { it.toWifiNetwork() }
-            .toList()
+        var scanCompleted = false
+        val scanReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
+                    scanCompleted = true
+                }
+            }
+        }
+
+        val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
+        return try {
+            ContextCompat.registerReceiver(
+                appContext,
+                scanReceiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
+
+            @Suppress("DEPRECATION")
+            wifiManager.startScan()
+
+            // Some Android versions may not deliver the broadcast immediately.
+            // Poll briefly as a fallback instead of assuming a fixed delay.
+            repeat(12) {
+                if (scanCompleted) return@repeat
+                kotlinx.coroutines.delay(500)
+            }
+
+            @Suppress("DEPRECATION")
+            wifiManager.scanResults
+                .asSequence()
+                .filter { it.SSID.isNotBlank() }
+                .distinctBy { it.SSID }
+                .sortedByDescending { it.level }
+                .map { it.toWifiNetwork() }
+                .toList()
+        } finally {
+            try {
+                appContext.unregisterReceiver(scanReceiver)
+            } catch (_: IllegalArgumentException) {
+                // Receiver was already unregistered.
+            }
+        }
     }
 
     fun currentSsid(): String? {
