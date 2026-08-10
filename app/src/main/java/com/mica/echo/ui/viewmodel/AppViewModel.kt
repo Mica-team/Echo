@@ -13,6 +13,8 @@ import com.mica.echo.settings.WifiNetwork
 import com.mica.echo.settings.WifiSecurity
 import com.mica.echo.settings.WifiManager as EchoWifiManager
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,10 +25,14 @@ class AppViewModel(context: Context) : ViewModel() {
     private val bluetooth = EchoBluetoothManager(appContext)
     private val wifi = EchoWifiManager(appContext)
     private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     private val bluetoothExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e(TAG, "Unhandled Bluetooth coroutine failure", throwable)
         _deviceState.value = DeviceState()
     }
+
+    private var identityVerificationJob: Job? = null
+
     private val _deviceState = MutableStateFlow(DeviceState())
     val deviceState: StateFlow<DeviceState> = _deviceState.asStateFlow()
     private val _telemetryData = MutableStateFlow(TelemetryData())
@@ -41,8 +47,6 @@ class AppViewModel(context: Context) : ViewModel() {
     val wifiSavedSsid: StateFlow<String?> = _wifiSavedSsid.asStateFlow()
     private val _wifiPasswordRequest = MutableStateFlow<WifiNetwork?>(null)
     val wifiPasswordRequest: StateFlow<WifiNetwork?> = _wifiPasswordRequest.asStateFlow()
-    private val _espWifiPasswordRequest = MutableStateFlow<String?>(null)
-    val espWifiPasswordRequest: StateFlow<String?> = _espWifiPasswordRequest.asStateFlow()
     private val _wifiStatus = MutableStateFlow<String?>(null)
     val wifiStatus: StateFlow<String?> = _wifiStatus.asStateFlow()
     private val _controlCommands = MutableStateFlow(listOf(
@@ -68,25 +72,53 @@ class AppViewModel(context: Context) : ViewModel() {
                     if (connected && device != null) {
                         val name = try { device.name ?: "Echo" } catch (_: SecurityException) { "Echo" }
                         val address = try { device.address } catch (_: SecurityException) { "" }
-                        _deviceState.value = DeviceState(name = name, address = address, isConnected = true, signalStrength = 0, batteryLevel = 0)
-                        if (address.isNotBlank()) preferences.edit().putString(KEY_LAST_DEVICE_ADDRESS, address).apply()
-                        requestEspWifiProvisioning()
+                        _deviceState.value = DeviceState(
+                            name = name,
+                            address = address,
+                            isConnected = true,
+                            isEchoVerified = false,
+                            signalStrength = 0,
+                            batteryLevel = 0
+                        )
+                        if (address.isNotBlank()) {
+                            preferences.edit().putString(KEY_LAST_DEVICE_ADDRESS, address).apply()
+                        }
+
+                        // Do not assume that every nearby Classic Bluetooth device is Echo.
+                        // Prove the identity over the already-open RFCOMM connection.
+                        identityVerificationJob?.cancel()
+                        identityVerificationJob = viewModelScope.launch(bluetoothExceptionHandler) {
+                            if (!bluetooth.send("IDENTIFY")) {
+                                bluetooth.disconnect()
+                                return@launch
+                            }
+                            delay(5000)
+                            if (_deviceState.value.isConnected && !_deviceState.value.isEchoVerified) {
+                                _wifiStatus.value = "Selected Bluetooth device is not an Echo device"
+                                bluetooth.disconnect()
+                            }
+                        }
                     } else {
+                        identityVerificationJob?.cancel()
                         _deviceState.value = DeviceState()
-                        _espWifiPasswordRequest.value = null
                         _wifiPasswordRequest.value = null
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Bluetooth connection state callback failed", e)
+                    identityVerificationJob?.cancel()
                     _deviceState.value = DeviceState()
-                    _espWifiPasswordRequest.value = null
                     _wifiPasswordRequest.value = null
                 }
             }
         )
         bluetooth.setDataListener { line -> handleBluetoothData(line) }
+
         val lastAddress = preferences.getString(KEY_LAST_DEVICE_ADDRESS, null)
-        if (!lastAddress.isNullOrBlank()) viewModelScope.launch(bluetoothExceptionHandler) { bluetooth.connect(lastAddress) }
+        if (!lastAddress.isNullOrBlank()) {
+            viewModelScope.launch(bluetoothExceptionHandler) {
+                bluetooth.connect(lastAddress)
+            }
+        }
     }
 
     fun scanWifiNetworks() {
@@ -106,7 +138,11 @@ class AppViewModel(context: Context) : ViewModel() {
                 val networks = wifi.scan()
                 _wifiNetworks.value = networks
                 _wifiCurrentSsid.value = wifi.currentSsid()
-                _wifiStatus.value = if (networks.isEmpty()) "No Wi-Fi networks found. Make sure Wi-Fi is on and Location is enabled." else "Found ${networks.size} Wi-Fi network${if (networks.size == 1) "" else "s"}"
+                _wifiStatus.value = if (networks.isEmpty()) {
+                    "No Wi-Fi networks found. Make sure Wi-Fi is on and Location is enabled."
+                } else {
+                    "Found ${networks.size} Wi-Fi network${if (networks.size == 1) "" else "s"}"
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Wi-Fi scan failed", e)
                 _wifiNetworks.value = emptyList()
@@ -115,73 +151,171 @@ class AppViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun requestWifiPassword(network: WifiNetwork) { _wifiPasswordRequest.value = network; _wifiStatus.value = null }
+    fun requestWifiPassword(network: WifiNetwork) {
+        _wifiPasswordRequest.value = network
+        _wifiStatus.value = null
+    }
 
-    fun connectToWifi(network: WifiNetwork, password: String = "") {
-        if (network.security != WifiSecurity.OPEN && password.isBlank()) return
-        viewModelScope.launch {
-            val result = wifi.connect(network, password)
-            if (result.isSuccess) {
-                _wifiSavedSsid.value = network.ssid
-                _wifiPasswordRequest.value = null
-                _wifiStatus.value = "Saved ${network.ssid}. Android will manage reconnection."
-                _wifiCurrentSsid.value = network.ssid
-            } else _wifiStatus.value = result.exceptionOrNull()?.message ?: "Could not save Wi-Fi network"
+    /**
+     * Wi-Fi scanning and password entry happen on Android. The credentials are
+     * then sent only to the verified Echo ESP32 over Bluetooth SPP.
+     */
+    fun provisionWifiToEcho(network: WifiNetwork, password: String = "") {
+        if (!_deviceState.value.isConnected || !_deviceState.value.isEchoVerified) {
+            _wifiStatus.value = "Connect to a verified Echo device first"
+            return
         }
-    }
+        if (network.security != WifiSecurity.OPEN && password.isBlank()) return
 
-    fun cancelWifiPasswordRequest() { _wifiPasswordRequest.value = null }
-    fun forgetSavedWifi() { wifi.forgetSavedNetwork(); _wifiSavedSsid.value = null; _wifiStatus.value = "Saved Wi-Fi network cleared" }
-
-    fun requestEspWifiProvisioning() {
-        if (!_deviceState.value.isConnected) return
-        try {
-            val androidWifi = appContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-            @Suppress("DEPRECATION") val rawSsid = androidWifi.connectionInfo?.ssid
-            val ssid = rawSsid?.trim()?.removePrefix("\"")?.removeSuffix("\"")
-            _espWifiPasswordRequest.value = if (!ssid.isNullOrBlank() && ssid != "<unknown ssid>") ssid else ""
-        } catch (e: Exception) { Log.e(TAG, "Failed to detect phone Wi-Fi SSID", e); _espWifiPasswordRequest.value = "" }
-    }
-
-    fun submitEspWifiPassword(password: String, manualSsid: String = "") {
-        val detectedSsid = _espWifiPasswordRequest.value
-        val ssid = if (!detectedSsid.isNullOrBlank()) detectedSsid else manualSsid.trim()
-        if (ssid.isBlank() || password.isBlank() || !_deviceState.value.isConnected) return
         viewModelScope.launch(bluetoothExceptionHandler) {
             try {
-                if (!bluetooth.send("WIFI_SSID=$ssid")) return@launch
-                if (!bluetooth.send("WIFI_PASS=$password")) return@launch
-                _espWifiPasswordRequest.value = null
-            } catch (e: Exception) { Log.e(TAG, "Failed to provision Echo Wi-Fi", e) }
+                _wifiStatus.value = "Sending Wi-Fi settings to Echo…"
+
+                if (!bluetooth.send("WIFI_SSID=${network.ssid}")) {
+                    _wifiStatus.value = "Could not send Wi-Fi name to Echo"
+                    return@launch
+                }
+
+                if (!bluetooth.send("WIFI_PASS=$password")) {
+                    _wifiStatus.value = "Could not send Wi-Fi password to Echo"
+                    return@launch
+                }
+
+                // Only retain the selected SSID in Android UI state. The password
+                // is not kept in the app state; the ESP32 persists it itself.
+                _wifiSavedSsid.value = network.ssid
+                _wifiPasswordRequest.value = null
+                _wifiStatus.value = "Wi-Fi settings sent to Echo. Waiting for connection…"
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to provision Echo Wi-Fi", e)
+                _wifiStatus.value = "Failed to send Wi-Fi settings to Echo"
+            }
         }
     }
-    fun cancelEspWifiProvisioning() { _espWifiPasswordRequest.value = null }
+
+    fun cancelWifiPasswordRequest() {
+        _wifiPasswordRequest.value = null
+    }
+
+    fun forgetSavedWifi() {
+        viewModelScope.launch(bluetoothExceptionHandler) {
+            if (_deviceState.value.isConnected && _deviceState.value.isEchoVerified) {
+                bluetooth.send("WIFI_CLEAR")
+            }
+            wifi.forgetSavedNetwork()
+            _wifiSavedSsid.value = null
+            _wifiStatus.value = "Saved Echo Wi-Fi network cleared"
+        }
+    }
 
     private fun handleBluetoothData(line: String) {
         val data = line.trim()
         Log.d(TAG, "ESP32 data: $data")
-        if (data.startsWith("TEMP:", ignoreCase = true)) {
-            val temperature = data.substringAfter(":").trim().toFloatOrNull() ?: return
-            val now = System.currentTimeMillis()
-            _telemetryData.value = _telemetryData.value.copy(temperature = temperature, timestamp = now)
-            if (_deviceState.value.isConnected) _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+
+        when {
+            data.startsWith("ECHO_ID:", ignoreCase = true) -> {
+                identityVerificationJob?.cancel()
+                val identity = data.substringAfter(":").trim()
+                if (identity.startsWith("Echo", ignoreCase = true)) {
+                    _deviceState.value = _deviceState.value.copy(isEchoVerified = true)
+                    _wifiStatus.value = "Echo verified. Choose a Wi-Fi network in Settings."
+                } else {
+                    _wifiStatus.value = "Bluetooth device identity was not Echo"
+                    bluetooth.disconnect()
+                }
+            }
+            data.startsWith("TEMP:", ignoreCase = true) -> {
+                val temperature = data.substringAfter(":").trim().toFloatOrNull() ?: return
+                val now = System.currentTimeMillis()
+                _telemetryData.value = _telemetryData.value.copy(temperature = temperature, timestamp = now)
+                if (_deviceState.value.isConnected) {
+                    _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+                }
+            }
+            data.startsWith("WIFI_STATUS:", ignoreCase = true) -> {
+                _wifiStatus.value = data.substringAfter(":").trim()
+            }
         }
     }
 
-    fun scanDevices() { try { bluetooth.scan() } catch (e: Exception) { Log.e(TAG, "Bluetooth scan request failed", e); _availableDevices.value = emptyList() } }
-    fun connectDevice(device: EchoBluetoothDevice) { viewModelScope.launch(bluetoothExceptionHandler) { try { if (!bluetooth.connect(device.address)) _deviceState.value = DeviceState() } catch (e: Exception) { Log.e(TAG, "Bluetooth connect request failed", e); _deviceState.value = DeviceState() } } }
-    fun disconnectDevice() { try { bluetooth.disconnect() } catch (e: Exception) { Log.w(TAG, "Bluetooth disconnect failed", e) }; _telemetryData.value = TelemetryData(); _wifiPasswordRequest.value = null; _espWifiPasswordRequest.value = null }
-    fun updateTelemetry() { if (_deviceState.value.isConnected) Log.d(TAG, "Waiting for real ESP32 telemetry") }
-    fun executeCommand(commandId: String) {
-        if (!_deviceState.value.isConnected) return
-        if (_controlCommands.value.none { it.id == commandId }) return
-        viewModelScope.launch(bluetoothExceptionHandler) {
-            try { if (bluetooth.send(commandId)) _controlCommands.value = _controlCommands.value.map { if (it.id == commandId) it.copy(isActive = !it.isActive) else it } }
-            catch (e: Exception) { Log.e(TAG, "Bluetooth command failed", e) }
+    fun scanDevices() {
+        try {
+            bluetooth.scan()
+        } catch (e: Exception) {
+            Log.e(TAG, "Bluetooth scan request failed", e)
+            _availableDevices.value = emptyList()
         }
     }
+
+    fun connectDevice(device: EchoBluetoothDevice) {
+        viewModelScope.launch(bluetoothExceptionHandler) {
+            try {
+                if (!bluetooth.connect(device.address)) {
+                    _deviceState.value = DeviceState()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Bluetooth connect request failed", e)
+                _deviceState.value = DeviceState()
+            }
+        }
+    }
+
+    fun disconnectDevice() {
+        identityVerificationJob?.cancel()
+        try {
+            bluetooth.disconnect()
+        } catch (e: Exception) {
+            Log.w(TAG, "Bluetooth disconnect failed", e)
+        }
+        _telemetryData.value = TelemetryData()
+        _wifiPasswordRequest.value = null
+    }
+
+    fun updateTelemetry() {
+        if (_deviceState.value.isConnected && _deviceState.value.isEchoVerified) {
+            Log.d(TAG, "Waiting for real ESP32 telemetry")
+        }
+    }
+
+    fun executeCommand(commandId: String) {
+        if (!_deviceState.value.isConnected || !_deviceState.value.isEchoVerified) return
+        if (_controlCommands.value.none { it.id == commandId }) return
+        viewModelScope.launch(bluetoothExceptionHandler) {
+            try {
+                if (bluetooth.send(commandId)) {
+                    _controlCommands.value = _controlCommands.value.map {
+                        if (it.id == commandId) it.copy(isActive = !it.isActive) else it
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Bluetooth command failed", e)
+            }
+        }
+    }
+
     fun getSetting(key: String): String = _settings.value[key].orEmpty()
-    fun setSetting(key: String, value: String) { _settings.value = _settings.value + (key to value); if (key == KEY_THEME_MODE) preferences.edit().putString(KEY_THEME_MODE, value).apply() }
-    override fun onCleared() { try { bluetooth.close() } catch (e: Exception) { Log.w(TAG, "Bluetooth cleanup failed", e) }; super.onCleared() }
-    companion object { private const val TAG = "EchoViewModel"; private const val PREFS_NAME = "echo_preferences"; private const val KEY_LAST_DEVICE_ADDRESS = "last_bluetooth_device_address"; private const val KEY_THEME_MODE = "theme_mode" }
+
+    fun setSetting(key: String, value: String) {
+        _settings.value = _settings.value + (key to value)
+        if (key == KEY_THEME_MODE) {
+            preferences.edit().putString(KEY_THEME_MODE, value).apply()
+        }
+    }
+
+    override fun onCleared() {
+        identityVerificationJob?.cancel()
+        try {
+            bluetooth.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Bluetooth cleanup failed", e)
+        }
+        super.onCleared()
+    }
+
+    companion object {
+        private const val TAG = "EchoViewModel"
+        private const val PREFS_NAME = "echo_preferences"
+        private const val KEY_LAST_DEVICE_ADDRESS = "last_bluetooth_device_address"
+        private const val KEY_THEME_MODE = "theme_mode"
+    }
 }
