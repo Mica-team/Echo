@@ -1,11 +1,10 @@
 package com.mica.echo.data
 
-import android.bluetooth.BluetoothDevice
-
 data class DeviceState(
     val name: String = "No Device",
     val address: String = "",
     val isConnected: Boolean = false,
+    val isEchoVerified: Boolean = false,
     val signalStrength: Int = 0,
     val batteryLevel: Int = 100,
     val lastUpdate: Long = System.currentTimeMillis()
