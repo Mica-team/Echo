@@ -43,9 +43,9 @@ class WifiManager(private val context: Context) {
         }
 
     /**
-     * Wi-Fi scanning is asynchronous. Register for Android's scan-result
-     * broadcast before starting the scan so the first scan does not read
-     * an old/empty scanResults cache.
+     * Returns nearby Wi-Fi networks. Android can throttle or reject an active
+     * scan, so always fall back to the latest cached scan results instead of
+     * returning an empty list immediately.
      */
     suspend fun scan(): List<WifiNetwork> {
         if (!hasScanPermission()) return emptyList()
@@ -61,31 +61,26 @@ class WifiManager(private val context: Context) {
             }
         }
 
-        val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
         return try {
             ContextCompat.registerReceiver(
                 appContext,
                 scanReceiver,
-                filter,
+                IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION),
                 ContextCompat.RECEIVER_EXPORTED
             )
 
             @Suppress("DEPRECATION")
-            wifiManager.startScan()
+            val started = wifiManager.startScan()
 
-            // Give Android up to 6 seconds to publish the scan result.
-            repeat(12) {
-                if (!scanCompleted) delay(500)
+            // If Android throttles the scan, the cached results are still valid
+            // and are preferable to showing a blank Wi-Fi list.
+            if (started) {
+                repeat(12) {
+                    if (!scanCompleted) delay(500)
+                }
             }
 
-            @Suppress("DEPRECATION")
-            wifiManager.scanResults
-                .asSequence()
-                .filter { it.SSID.isNotBlank() }
-                .distinctBy { it.SSID }
-                .sortedByDescending { it.level }
-                .map { it.toWifiNetwork() }
-                .toList()
+            getNetworksFromResults()
         } finally {
             try {
                 appContext.unregisterReceiver(scanReceiver)
@@ -93,6 +88,17 @@ class WifiManager(private val context: Context) {
                 // Receiver was already unregistered.
             }
         }
+    }
+
+    private fun getNetworksFromResults(): List<WifiNetwork> {
+        @Suppress("DEPRECATION")
+        return wifiManager.scanResults
+            .asSequence()
+            .filter { it.SSID.isNotBlank() }
+            .distinctBy { it.SSID }
+            .sortedByDescending { it.level }
+            .map { it.toWifiNetwork() }
+            .toList()
     }
 
     fun currentSsid(): String? {
