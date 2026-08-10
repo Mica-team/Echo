@@ -37,6 +37,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
     val savedWifi by viewModel.wifiSavedSsid.collectAsState()
     val wifiPasswordRequest by viewModel.wifiPasswordRequest.collectAsState()
     val wifiStatus by viewModel.wifiStatus.collectAsState()
+    val deviceState by viewModel.deviceState.collectAsState()
 
     var showWifiPicker by remember { mutableStateOf(false) }
     var password by remember { mutableStateOf("") }
@@ -49,12 +50,14 @@ fun SettingsScreen(viewModel: AppViewModel) {
     }
 
     fun openWifiPicker() {
-        // Android 12+ requires ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION
-        // to be requested together. Fine location is needed for Wi-Fi scan results.
+        // Android 11/API 30 needs location permission and Location services
+        // enabled for nearby Wi-Fi scan results.
         val permissions = buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
             add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            if (Build.VERSION.SDK_INT >= 33) {
+                add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
         }.toTypedArray()
         wifiPermissionLauncher.launch(permissions)
     }
@@ -103,10 +106,26 @@ fun SettingsScreen(viewModel: AppViewModel) {
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Wi-Fi", style = MaterialTheme.typography.titleMedium)
-                    Text("Connected: ${currentWifi ?: "Not connected"}")
-                    Text("Saved network: ${savedWifi ?: "None"}")
-                    Button(onClick = { openWifiPicker() }) { Text(if (savedWifi == null) "Choose Wi-Fi" else "Switch network") }
-                    if (savedWifi != null) OutlinedButton(onClick = { viewModel.forgetSavedWifi() }) { Text("Forget saved network") }
+                    Text("Phone Wi-Fi: ${currentWifi ?: "Not connected"}")
+                    Text("Echo Wi-Fi: ${savedWifi ?: "Not configured"}")
+                    Text(
+                        if (deviceState.isEchoVerified) {
+                            "Echo Bluetooth: verified"
+                        } else if (deviceState.isConnected) {
+                            "Echo Bluetooth: verifying device…"
+                        } else {
+                            "Echo Bluetooth: not connected"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Button(onClick = { openWifiPicker() }) {
+                        Text(if (savedWifi == null) "Choose Wi-Fi" else "Switch network")
+                    }
+                    if (savedWifi != null) {
+                        OutlinedButton(onClick = { viewModel.forgetSavedWifi() }) {
+                            Text("Forget saved network")
+                        }
+                    }
                     wifiStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
@@ -121,45 +140,79 @@ fun SettingsScreen(viewModel: AppViewModel) {
     if (showWifiPicker) {
         AlertDialog(
             onDismissRequest = { showWifiPicker = false },
-            title = { Text("Choose Wi-Fi") },
+            title = { Text("Choose Wi-Fi for Echo") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Wi-Fi scanning is done by your Android phone. Echo only receives the selected network credentials over its verified Bluetooth connection.")
                     Button(onClick = { viewModel.scanWifiNetworks() }) { Text("Rescan") }
                     if (wifiNetworks.isEmpty()) {
                         Text("No networks found. Make sure Wi-Fi is on and Location is enabled.")
                     } else {
                         wifiNetworks.forEach { network ->
                             Row(
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    showWifiPicker = false
-                                    password = ""
-                                    if (network.security == WifiSecurity.OPEN) viewModel.connectToWifi(network)
-                                    else viewModel.requestWifiPassword(network)
-                                }.padding(vertical = 10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showWifiPicker = false
+                                        password = ""
+                                        if (network.security == WifiSecurity.OPEN) {
+                                            viewModel.provisionWifiToEcho(network)
+                                        } else {
+                                            viewModel.requestWifiPassword(network)
+                                        }
+                                    }
+                                    .padding(vertical = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
                                     Text(network.ssid)
-                                    Text("${network.security.name} • signal ${network.signalLevel} dBm", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        "${network.security.name} • signal ${network.signalLevel} dBm",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                 }
                             }
                         }
                     }
                 }
             },
-            confirmButton = { OutlinedButton(onClick = { showWifiPicker = false }) { Text("Close") } }
+            confirmButton = {
+                OutlinedButton(onClick = { showWifiPicker = false }) { Text("Close") }
+            }
         )
     }
 
     wifiPasswordRequest?.let { network ->
         AlertDialog(
-            onDismissRequest = { viewModel.cancelWifiPasswordRequest() },
-            title = { Text("Password for ${network.ssid}") },
-            text = { OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Wi-Fi password") }, singleLine = true) },
-            confirmButton = {
-                Button(enabled = password.isNotEmpty(), onClick = { viewModel.connectToWifi(network, password); password = "" }) { Text("Connect") }
+            onDismissRequest = {
+                password = ""
+                viewModel.cancelWifiPasswordRequest()
             },
-            dismissButton = { OutlinedButton(onClick = { viewModel.cancelWifiPasswordRequest() }) { Text("Cancel") } }
+            title = { Text("Password for ${network.ssid}") },
+            text = {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Wi-Fi password") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = password.isNotEmpty(),
+                    onClick = {
+                        val enteredPassword = password
+                        password = ""
+                        viewModel.provisionWifiToEcho(network, enteredPassword)
+                    }
+                ) { Text("Connect Echo") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = {
+                    password = ""
+                    viewModel.cancelWifiPasswordRequest()
+                }) { Text("Cancel") }
+            }
         )
     }
 }
