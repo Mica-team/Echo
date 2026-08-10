@@ -21,17 +21,11 @@ class WifiManager(private val context: Context) {
     private val preferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun hasScanPermission(): Boolean =
-        ContextCompat.checkSelfPermission(
-            appContext,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
+        ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     fun hasSuggestionPermission(): Boolean =
         Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(
-                appContext,
-                Manifest.permission.NEARBY_WIFI_DEVICES
-            ) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(appContext, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
 
     fun locationServicesEnabled(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -43,15 +37,16 @@ class WifiManager(private val context: Context) {
         }
 
     /**
-     * Returns nearby Wi-Fi networks. Android can throttle or reject an active
-     * scan, so always fall back to the latest cached scan results instead of
-     * returning an empty list immediately.
+     * Scan nearby networks while retaining Android's cached results when an
+     * active scan is throttled. The previous implementation also waited the
+     * full timeout even after the scan completed.
      */
     suspend fun scan(): List<WifiNetwork> {
         if (!hasScanPermission()) return emptyList()
         if (!locationServicesEnabled()) return emptyList()
         if (!wifiManager.isWifiEnabled) return emptyList()
 
+        val cached = getNetworksFromResults()
         var scanCompleted = false
         val scanReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -72,20 +67,22 @@ class WifiManager(private val context: Context) {
             @Suppress("DEPRECATION")
             val started = wifiManager.startScan()
 
-            // If Android throttles the scan, the cached results are still valid
-            // and are preferable to showing a blank Wi-Fi list.
             if (started) {
-                repeat(12) {
-                    if (!scanCompleted) delay(500)
+                repeat(14) {
+                    if (scanCompleted) return@repeat
+                    delay(500)
                 }
             }
 
-            getNetworksFromResults()
+            val fresh = getNetworksFromResults()
+            if (fresh.isNotEmpty()) fresh else cached
+        } catch (_: SecurityException) {
+            cached
         } finally {
             try {
                 appContext.unregisterReceiver(scanReceiver)
             } catch (_: IllegalArgumentException) {
-                // Receiver was already unregistered.
+                // Already unregistered.
             }
         }
     }
@@ -103,7 +100,6 @@ class WifiManager(private val context: Context) {
 
     fun currentSsid(): String? {
         if (!hasScanPermission()) return null
-
         @Suppress("DEPRECATION")
         return wifiManager.connectionInfo?.ssid
             ?.removePrefix("\"")
@@ -112,38 +108,26 @@ class WifiManager(private val context: Context) {
     }
 
     fun connect(network: WifiNetwork, password: String): Result<Unit> {
-        if (!hasSuggestionPermission()) {
-            return Result.failure(IllegalStateException("Wi-Fi device permission is required"))
-        }
-        if (network.security != WifiSecurity.OPEN && password.isBlank()) {
-            return Result.failure(IllegalArgumentException("Wi-Fi password is required"))
-        }
-        if (network.security == WifiSecurity.WEP) {
-            return Result.failure(IllegalArgumentException("WEP networks are not supported"))
-        }
+        if (!hasSuggestionPermission()) return Result.failure(IllegalStateException("Wi-Fi device permission is required"))
+        if (network.security != WifiSecurity.OPEN && password.isBlank()) return Result.failure(IllegalArgumentException("Wi-Fi password is required"))
+        if (network.security == WifiSecurity.WEP) return Result.failure(IllegalArgumentException("WEP networks are not supported"))
 
         return try {
             val previousSsid = preferences.getString(KEY_SAVED_SSID, null)
-            if (!previousSsid.isNullOrBlank() && previousSsid != network.ssid) {
-                removeSuggestion(previousSsid)
-            }
+            if (!previousSsid.isNullOrBlank() && previousSsid != network.ssid) removeSuggestion(previousSsid)
 
             val builder = WifiNetworkSuggestion.Builder().setSsid(network.ssid)
             when (network.security) {
                 WifiSecurity.OPEN -> Unit
                 WifiSecurity.WPA3 -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        builder.setWpa3Passphrase(password)
-                    } else {
-                        builder.setWpa2Passphrase(password)
-                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) builder.setWpa3Passphrase(password)
+                    else builder.setWpa2Passphrase(password)
                 }
                 WifiSecurity.WPA2 -> builder.setWpa2Passphrase(password)
                 WifiSecurity.WEP -> error("WEP is handled above")
             }
 
-            val suggestion = builder.build()
-            val status = wifiManager.addNetworkSuggestions(listOf(suggestion))
+            val status = wifiManager.addNetworkSuggestions(listOf(builder.build()))
             if (status != WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
                 return Result.failure(IllegalStateException("Android rejected the Wi-Fi suggestion: $status"))
             }
@@ -165,13 +149,10 @@ class WifiManager(private val context: Context) {
 
     private fun removeSuggestion(ssid: String) {
         if (!hasSuggestionPermission()) return
-
         try {
-            wifiManager.removeNetworkSuggestions(
-                listOf(WifiNetworkSuggestion.Builder().setSsid(ssid).build())
-            )
+            wifiManager.removeNetworkSuggestions(listOf(WifiNetworkSuggestion.Builder().setSsid(ssid).build()))
         } catch (_: Exception) {
-            // The old suggestion may already have been removed by Android.
+            // Android may already have removed the suggestion.
         }
     }
 
@@ -183,11 +164,7 @@ class WifiManager(private val context: Context) {
             capabilities.contains("WPA") || capabilities.contains("PSK") -> WifiSecurity.WPA2
             else -> WifiSecurity.OPEN
         }
-        return WifiNetwork(
-            ssid = SSID,
-            signalLevel = level,
-            security = security
-        )
+        return WifiNetwork(SSID, level, security)
     }
 
     companion object {
