@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -77,15 +76,19 @@ fun SettingsScreen(viewModel: AppViewModel) {
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                    val selectedTheme = settings["theme_mode"] ?: "dark"
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { viewModel.setSetting("theme_mode", "light") }) {
-                            Text("Light")
-                        }
-                        Button(onClick = { viewModel.setSetting("theme_mode", "dark") }) {
-                            Text("Dark")
-                        }
+                        if (selectedTheme == "light") Button(onClick = { viewModel.setSetting("theme_mode", "light") }) { Text("Light") }
+                        else OutlinedButton(onClick = { viewModel.setSetting("theme_mode", "light") }) { Text("Light") }
+
+                        if (selectedTheme == "dark") Button(onClick = { viewModel.setSetting("theme_mode", "dark") }) { Text("Dark") }
+                        else OutlinedButton(onClick = { viewModel.setSetting("theme_mode", "dark") }) { Text("Dark") }
+
+                        if (selectedTheme == "system") Button(onClick = { viewModel.setSetting("theme_mode", "system") }) { Text("System") }
+                        else OutlinedButton(onClick = { viewModel.setSetting("theme_mode", "system") }) { Text("System") }
                     }
-                    Text("Current mode: ${settings["theme_mode"]}")
+                    Text("Current mode: ${selectedTheme.replaceFirstChar { it.uppercase() }}")
                 }
             }
         }
@@ -99,20 +102,9 @@ fun SettingsScreen(viewModel: AppViewModel) {
                     Text("Wi-Fi", style = MaterialTheme.typography.titleMedium)
                     Text("Connected: ${currentWifi ?: "Not connected"}")
                     Text("Saved network: ${savedWifi ?: "None"}")
-
-                    Button(onClick = { openWifiPicker() }) {
-                        Text(if (savedWifi == null) "Choose Wi-Fi" else "Switch network")
-                    }
-
-                    if (savedWifi != null) {
-                        OutlinedButton(onClick = { viewModel.forgetSavedWifi() }) {
-                            Text("Forget saved network")
-                        }
-                    }
-
-                    wifiStatus?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall)
-                    }
+                    Button(onClick = { openWifiPicker() }) { Text(if (savedWifi == null) "Choose Wi-Fi" else "Switch network") }
+                    if (savedWifi != null) OutlinedButton(onClick = { viewModel.forgetSavedWifi() }) { Text("Forget saved network") }
+                    wifiStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
@@ -129,45 +121,30 @@ fun SettingsScreen(viewModel: AppViewModel) {
             title = { Text("Choose Wi-Fi") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { viewModel.scanWifiNetworks() }) {
-                        Text("Rescan")
-                    }
+                    Button(onClick = { viewModel.scanWifiNetworks() }) { Text("Rescan") }
                     if (wifiNetworks.isEmpty()) {
                         Text("No networks found. Make sure Wi-Fi and location services are enabled.")
                     } else {
                         wifiNetworks.forEach { network ->
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showWifiPicker = false
-                                        password = ""
-                                        if (network.security == WifiSecurity.OPEN) {
-                                            viewModel.connectToWifi(network)
-                                        } else {
-                                            viewModel.requestWifiPassword(network)
-                                        }
-                                    }
-                                    .padding(vertical = 10.dp),
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    showWifiPicker = false
+                                    password = ""
+                                    if (network.security == WifiSecurity.OPEN) viewModel.connectToWifi(network)
+                                    else viewModel.requestWifiPassword(network)
+                                }.padding(vertical = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
                                     Text(network.ssid)
-                                    Text(
-                                        "${network.security.name} • signal ${network.signalLevel} dBm",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
+                                    Text("${network.security.name} • signal ${network.signalLevel} dBm", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
                     }
                 }
             },
-            confirmButton = {
-                OutlinedButton(onClick = { showWifiPicker = false }) {
-                    Text("Close")
-                }
-            }
+            confirmButton = { OutlinedButton(onClick = { showWifiPicker = false }) { Text("Close") } }
         )
     }
 
@@ -175,30 +152,11 @@ fun SettingsScreen(viewModel: AppViewModel) {
         AlertDialog(
             onDismissRequest = { viewModel.cancelWifiPasswordRequest() },
             title = { Text("Password for ${network.ssid}") },
-            text = {
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Wi-Fi password") },
-                    singleLine = true
-                )
-            },
+            text = { OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Wi-Fi password") }, singleLine = true) },
             confirmButton = {
-                Button(
-                    enabled = password.isNotEmpty(),
-                    onClick = {
-                        viewModel.connectToWifi(network, password)
-                        password = ""
-                    }
-                ) {
-                    Text("Connect")
-                }
+                Button(enabled = password.isNotEmpty(), onClick = { viewModel.connectToWifi(network, password); password = "" }) { Text("Connect") }
             },
-            dismissButton = {
-                OutlinedButton(onClick = { viewModel.cancelWifiPasswordRequest() }) {
-                    Text("Cancel")
-                }
-            }
+            dismissButton = { OutlinedButton(onClick = { viewModel.cancelWifiPasswordRequest() }) { Text("Cancel") } }
         )
     }
 }
