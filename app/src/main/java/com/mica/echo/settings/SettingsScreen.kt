@@ -49,8 +49,11 @@ fun SettingsScreen(viewModel: AppViewModel) {
     }
 
     fun openWifiPicker() {
+        // Android 12+ requires ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION
+        // to be requested together. Fine location is needed for Wi-Fi scan results.
         val permissions = buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }.toTypedArray()
         wifiPermissionLauncher.launch(permissions)
@@ -123,7 +126,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { viewModel.scanWifiNetworks() }) { Text("Rescan") }
                     if (wifiNetworks.isEmpty()) {
-                        Text("No networks found. Make sure Wi-Fi and location services are enabled.")
+                        Text("No networks found. Make sure Wi-Fi is on and Location is enabled.")
                     } else {
                         wifiNetworks.forEach { network ->
                             Row(
