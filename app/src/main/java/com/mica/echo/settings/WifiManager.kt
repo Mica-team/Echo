@@ -12,8 +12,7 @@ import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
+import kotlinx.coroutines.delay
 
 class WifiManager(private val context: Context) {
     private val appContext = context.applicationContext
@@ -44,24 +43,14 @@ class WifiManager(private val context: Context) {
         }
 
     /**
-     * Start a real asynchronous Wi-Fi scan and wait for Android's scan-result
-     * broadcast. Reading scanResults immediately after startScan() can return
-     * the old/empty cache, which made the Wi-Fi picker appear empty.
+     * Wi-Fi scanning is asynchronous. Register for Android's scan-result
+     * broadcast before starting the scan so the first scan does not read
+     * an old/empty scanResults cache.
      */
     suspend fun scan(): List<WifiNetwork> {
         if (!hasScanPermission()) return emptyList()
         if (!locationServicesEnabled()) return emptyList()
         if (!wifiManager.isWifiEnabled) return emptyList()
-
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
-                    result = true
-                }
-            }
-
-            private var result = false
-        }
 
         var scanCompleted = false
         val scanReceiver = object : BroadcastReceiver() {
@@ -84,11 +73,9 @@ class WifiManager(private val context: Context) {
             @Suppress("DEPRECATION")
             wifiManager.startScan()
 
-            // Some Android versions may not deliver the broadcast immediately.
-            // Poll briefly as a fallback instead of assuming a fixed delay.
+            // Give Android up to 6 seconds to publish the scan result.
             repeat(12) {
-                if (scanCompleted) return@repeat
-                kotlinx.coroutines.delay(500)
+                if (!scanCompleted) delay(500)
             }
 
             @Suppress("DEPRECATION")
