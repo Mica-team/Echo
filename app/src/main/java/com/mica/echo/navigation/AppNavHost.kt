@@ -1,22 +1,14 @@
 package com.mica.echo.navigation
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,12 +36,6 @@ fun AppNavHost(
         AppDestination.Status,
         AppDestination.Settings
     )
-
-    // This is the ESP32 provisioning request triggered after Bluetooth connects.
-    // null = no setup pending, blank = SSID could not be detected automatically.
-    val espWifiSsid by viewModel.espWifiPasswordRequest.collectAsState()
-    var wifiPassword by remember { mutableStateOf("") }
-    var manualSsid by remember { mutableStateOf("") }
 
     Scaffold(
         bottomBar = {
@@ -85,64 +71,5 @@ fun AppNavHost(
             composable(AppDestination.Status.route) { StatusScreen(viewModel) }
             composable(AppDestination.Settings.route) { SettingsScreen(viewModel) }
         }
-    }
-
-    if (espWifiSsid != null) {
-        AlertDialog(
-            onDismissRequest = {
-                wifiPassword = ""
-                manualSsid = ""
-                viewModel.cancelEspWifiProvisioning()
-            },
-            title = { Text("Connect Echo to Wi-Fi") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (espWifiSsid!!.isBlank()) {
-                        Text("Android could not read the current Wi-Fi network automatically.")
-                        OutlinedTextField(
-                            value = manualSsid,
-                            onValueChange = { manualSsid = it },
-                            label = { Text("Wi-Fi SSID") },
-                            singleLine = true
-                        )
-                    } else {
-                        Text("Wi-Fi network detected:")
-                        Text(espWifiSsid!!)
-                    }
-
-                    Text("Enter the Wi-Fi password. It will be sent to Echo over Bluetooth.")
-                    OutlinedTextField(
-                        value = wifiPassword,
-                        onValueChange = { wifiPassword = it },
-                        label = { Text("Wi-Fi password") },
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    enabled = wifiPassword.isNotEmpty() &&
-                        (espWifiSsid!!.isNotBlank() || manualSsid.isNotBlank()),
-                    onClick = {
-                        val password = wifiPassword
-                        val ssid = manualSsid
-                        wifiPassword = ""
-                        manualSsid = ""
-                        viewModel.submitEspWifiPassword(password, ssid)
-                    }
-                ) {
-                    Text("Send to Echo")
-                }
-            },
-            dismissButton = {
-                Button(onClick = {
-                    wifiPassword = ""
-                    manualSsid = ""
-                    viewModel.cancelEspWifiProvisioning()
-                }) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 }
