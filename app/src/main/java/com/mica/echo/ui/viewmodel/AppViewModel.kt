@@ -45,11 +45,13 @@ class AppViewModel(context: Context) : ViewModel() {
     val espWifiPasswordRequest: StateFlow<String?> = _espWifiPasswordRequest.asStateFlow()
     private val _wifiStatus = MutableStateFlow<String?>(null)
     val wifiStatus: StateFlow<String?> = _wifiStatus.asStateFlow()
+    private val _otaStatus = MutableStateFlow<String?>(null)
+    val otaStatus: StateFlow<String?> = _otaStatus.asStateFlow()
     private val _controlCommands = MutableStateFlow(listOf(
         ControlCommand("PING", "Ping", "Check if Echo is responding", false),
         ControlCommand("STATUS", "Status", "Request Echo system status", false),
         ControlCommand("WIFI", "Wi-Fi", "Check Echo Wi-Fi status", false),
-        ControlCommand("OTA", "Check Update", "Check for a firmware update", false),
+        ControlCommand("OTA_UPDATE", "Update Software", "Check for and install a firmware update", false),
         ControlCommand("REBOOT", "Reboot", "Restart Echo", false)
     ))
     val controlCommands: StateFlow<List<ControlCommand>> = _controlCommands.asStateFlow()
@@ -160,11 +162,28 @@ class AppViewModel(context: Context) : ViewModel() {
     private fun handleBluetoothData(line: String) {
         val data = line.trim()
         Log.d(TAG, "ESP32 data: $data")
-        if (data.startsWith("TEMP:", ignoreCase = true)) {
-            val temperature = data.substringAfter(":").trim().toFloatOrNull() ?: return
-            val now = System.currentTimeMillis()
-            _telemetryData.value = _telemetryData.value.copy(temperature = temperature, timestamp = now)
-            if (_deviceState.value.isConnected) _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+        when {
+            data.startsWith("TEMP:", ignoreCase = true) -> {
+                val temperature = data.substringAfter(":").trim().toFloatOrNull() ?: return
+                val now = System.currentTimeMillis()
+                _telemetryData.value = _telemetryData.value.copy(temperature = temperature, timestamp = now)
+                if (_deviceState.value.isConnected) _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+            }
+            data.startsWith("OTA_AVAILABLE:", ignoreCase = true) -> {
+                _otaStatus.value = "Update available: ${data.substringAfter(":")}"
+            }
+            data.startsWith("OTA_START", ignoreCase = true) -> {
+                _otaStatus.value = "Echo is updating software… Bluetooth will reconnect when it restarts."
+            }
+            data.startsWith("OTA_UP_TO_DATE:", ignoreCase = true) -> {
+                _otaStatus.value = "Echo is already up to date."
+            }
+            data.startsWith("OTA_ERROR:", ignoreCase = true) -> {
+                _otaStatus.value = "Update failed: ${data.substringAfter(":")}"
+            }
+            data.startsWith("OTA_WIFI_NOT_CONNECTED", ignoreCase = true) -> {
+                _otaStatus.value = "Echo could not connect to the saved Wi-Fi network."
+            }
         }
     }
 
@@ -176,7 +195,12 @@ class AppViewModel(context: Context) : ViewModel() {
         if (!_deviceState.value.isConnected) return
         if (_controlCommands.value.none { it.id == commandId }) return
         viewModelScope.launch(bluetoothExceptionHandler) {
-            try { if (bluetooth.send(commandId)) _controlCommands.value = _controlCommands.value.map { if (it.id == commandId) it.copy(isActive = !it.isActive) else it } }
+            try {
+                if (bluetooth.send(commandId)) {
+                    if (commandId == "OTA_UPDATE") _otaStatus.value = "Checking for a software update…"
+                    _controlCommands.value = _controlCommands.value.map { if (it.id == commandId) it.copy(isActive = !it.isActive) else it }
+                }
+            }
             catch (e: Exception) { Log.e(TAG, "Bluetooth command failed", e) }
         }
     }
