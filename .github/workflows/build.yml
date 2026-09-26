@@ -13,25 +13,38 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          set -euo pipefail
+
+          echo "Accepting Android SDK licenses..."
+          yes | sdkmanager --licenses > /dev/null || true
+
+          echo "Installing required Android SDK packages..."
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "Installed Android SDK packages:"
+          sdkmanager --list_installed
 
       - name: Configure Echo signing keystore
         env:
@@ -60,9 +73,12 @@ jobs:
           keyPassword=$ECHO_KEY_PASSWORD
           EOF
 
-          chmod 600 "$GITHUB_WORKSPACE/echo-release.jks" "$GITHUB_WORKSPACE/keystore.properties"
+          chmod 600 \
+            "$GITHUB_WORKSPACE/echo-release.jks" \
+            "$GITHUB_WORKSPACE/keystore.properties"
 
           echo "Checking Echo keystore certificate..."
+
           keytool -list -v \
             -keystore "$GITHUB_WORKSPACE/echo-release.jks" \
             -storepass "$ECHO_KEYSTORE_PASSWORD" \
@@ -71,6 +87,11 @@ jobs:
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
+
+      - name: Show Java and Gradle versions
+        run: |
+          java -version
+          ./gradlew --version
 
       - name: Build debug APK
         run: ./gradlew clean assembleDebug --stacktrace
@@ -85,6 +106,18 @@ jobs:
           EXPECTED="E6DACEFE8168C3E3C1596908E6A9D37B98B32F01"
 
           echo "APK: $APK"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          if [ ! -f "$APKSIGNER" ]; then
+            echo "ERROR: apksigner was not found at:"
+            echo "$APKSIGNER"
+            exit 1
+          fi
+
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
           ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" \
@@ -117,4 +150,6 @@ jobs:
       - name: Clean signing material
         if: always()
         run: |
-          rm -f "$GITHUB_WORKSPACE/echo-release.jks" "$GITHUB_WORKSPACE/keystore.properties"
+          rm -f \
+            "$GITHUB_WORKSPACE/echo-release.jks" \
+            "$GITHUB_WORKSPACE/keystore.properties"
