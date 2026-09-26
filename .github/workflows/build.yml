@@ -37,13 +37,13 @@ jobs:
           echo "Accepting Android SDK licenses..."
           yes | sdkmanager --licenses > /dev/null || true
 
-          echo "Installing required Android SDK packages..."
+          echo "Installing Android SDK packages..."
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo "Installed Android SDK packages:"
+          echo "Installed SDK packages:"
           sdkmanager --list_installed
 
       - name: Configure Echo signing keystore
@@ -58,11 +58,12 @@ jobs:
 
           if [ -z "$ECHO_KEYSTORE_BASE64" ]; then
             echo "ERROR: ECHO_KEYSTORE_BASE64 is unavailable."
-            echo "Run this workflow from a branch/repository context where Actions secrets are available."
             exit 1
           fi
 
-          printf '%s' "$ECHO_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/echo-release.jks"
+          printf '%s' "$ECHO_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$GITHUB_WORKSPACE/echo-release.jks"
 
           test -s "$GITHUB_WORKSPACE/echo-release.jks"
 
@@ -113,8 +114,7 @@ jobs:
           fi
 
           if [ ! -f "$APKSIGNER" ]; then
-            echo "ERROR: apksigner was not found at:"
-            echo "$APKSIGNER"
+            echo "ERROR: apksigner was not found."
             exit 1
           fi
 
@@ -129,7 +129,7 @@ jobs:
           echo "Actual SHA-1:   $ACTUAL"
 
           if [ -z "$ACTUAL" ]; then
-            echo "ERROR: Could not read the APK SHA-1 certificate."
+            echo "ERROR: Could not read APK SHA-1 certificate."
             exit 1
           fi
 
