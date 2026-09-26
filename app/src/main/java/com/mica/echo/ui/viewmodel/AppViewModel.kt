@@ -145,16 +145,30 @@ class AppViewModel(context: Context) : ViewModel() {
         } catch (e: Exception) { Log.e(TAG, "Failed to detect phone Wi-Fi SSID", e); _espWifiPasswordRequest.value = "" }
     }
 
+    /**
+     * Sends Wi-Fi credentials to Echo over Bluetooth.
+     *
+     * The phone performs Wi-Fi discovery. Echo does not scan for networks.
+     * Echo only connects after the app explicitly sends WIFI_CONNECT.
+     */
     fun submitEspWifiPassword(password: String, manualSsid: String = "") {
         val detectedSsid = _espWifiPasswordRequest.value
         val ssid = if (!detectedSsid.isNullOrBlank()) detectedSsid else manualSsid.trim()
+
         if (ssid.isBlank() || password.isBlank() || !_deviceState.value.isConnected) return
+
         viewModelScope.launch(bluetoothExceptionHandler) {
             try {
                 if (!bluetooth.send("WIFI_SSID=$ssid")) return@launch
                 if (!bluetooth.send("WIFI_PASS=$password")) return@launch
+                if (!bluetooth.send("WIFI_CONNECT")) return@launch
+
                 _espWifiPasswordRequest.value = null
-            } catch (e: Exception) { Log.e(TAG, "Failed to provision Echo Wi-Fi", e) }
+                _wifiStatus.value = "Wi-Fi credentials sent to Echo"
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to provision Echo Wi-Fi", e)
+                _wifiStatus.value = "Could not send Wi-Fi credentials to Echo"
+            }
         }
     }
     fun cancelEspWifiProvisioning() { _espWifiPasswordRequest.value = null }
