@@ -7,6 +7,7 @@ import com.mica.echo.bluetooth.EchoBluetoothManager
 import com.mica.echo.data.ControlCommand
 import com.mica.echo.data.DeviceState
 import com.mica.echo.data.TelemetryData
+import com.mica.echo.wifi.PhoneWifiManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,7 @@ import kotlin.random.Random
 class AppViewModel(context: Context) : ViewModel() {
 
     private val bluetooth = EchoBluetoothManager(context)
+    private val phoneWifi = PhoneWifiManager(context)
 
     /* =========================
        Device State
@@ -44,6 +46,9 @@ class AppViewModel(context: Context) : ViewModel() {
 
     val availableDevices: StateFlow<List<String>> =
         _availableDevices.asStateFlow()
+
+    private val _availableWifiNetworks = MutableStateFlow<List<String>>(emptyList())
+    val availableWifiNetworks: StateFlow<List<String>> = _availableWifiNetworks.asStateFlow()
 
     /* =========================
        Echo Commands
@@ -115,6 +120,10 @@ class AppViewModel(context: Context) : ViewModel() {
 
     init {
 
+        phoneWifi.setListener { networks ->
+            _availableWifiNetworks.value = networks
+        }
+
         bluetooth.setListeners(
 
             devicesChanged = { devices ->
@@ -161,8 +170,20 @@ class AppViewModel(context: Context) : ViewModel() {
     ========================= */
 
     fun scanDevices() {
-
         bluetooth.scan()
+    }
+
+    fun scanWifiNetworks() {
+        phoneWifi.scan()
+    }
+
+    fun configureEchoWifi(ssid: String, password: String) {
+        if (ssid.isBlank() || !_deviceState.value.isConnected) return
+        viewModelScope.launch {
+            bluetooth.send("WIFI_SSID=$ssid")
+            bluetooth.send("WIFI_PASS=$password")
+            bluetooth.send("WIFI_CONNECT")
+        }
     }
 
     fun connectDevice(deviceName: String) {
@@ -341,6 +362,7 @@ class AppViewModel(context: Context) : ViewModel() {
     override fun onCleared() {
 
         bluetooth.close()
+        phoneWifi.close()
 
         super.onCleared()
     }
