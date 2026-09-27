@@ -177,11 +177,44 @@ class AppViewModel(context: Context) : ViewModel() {
         val data = line.trim()
         Log.d(TAG, "ESP32 data: $data")
         when {
+            data.startsWith("STATS:", ignoreCase = true) ||
+                data.startsWith("INFO:", ignoreCase = true) -> {
+                val fields = data.substringAfter(":")
+                    .split(";")
+                    .mapNotNull {
+                        val separator = it.indexOf("=")
+                        if (separator <= 0) null
+                        else it.substring(0, separator).trim().uppercase() to
+                            it.substring(separator + 1).trim()
+                    }
+                    .toMap()
+
+                val now = System.currentTimeMillis()
+                _telemetryData.value = _telemetryData.value.copy(
+                    temperature = fields["TEMP"]?.toFloatOrNull()
+                        ?: _telemetryData.value.temperature,
+                    cpuMhz = fields["CPU"]?.toIntOrNull()
+                        ?: _telemetryData.value.cpuMhz,
+                    freeHeapBytes = fields["HEAP"]?.toLongOrNull()
+                        ?: _telemetryData.value.freeHeapBytes,
+                    bluetoothStatus = fields["BT"]
+                        ?: _telemetryData.value.bluetoothStatus,
+                    timestamp = now
+                )
+                if (_deviceState.value.isConnected) {
+                    _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+                }
+            }
             data.startsWith("TEMP:", ignoreCase = true) -> {
                 val temperature = data.substringAfter(":").trim().toFloatOrNull() ?: return
                 val now = System.currentTimeMillis()
-                _telemetryData.value = _telemetryData.value.copy(temperature = temperature, timestamp = now)
-                if (_deviceState.value.isConnected) _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+                _telemetryData.value = _telemetryData.value.copy(
+                    temperature = temperature,
+                    timestamp = now
+                )
+                if (_deviceState.value.isConnected) {
+                    _deviceState.value = _deviceState.value.copy(lastUpdate = now)
+                }
             }
             data.startsWith("OTA_AVAILABLE:", ignoreCase = true) -> {
                 _otaStatus.value = "Update available: ${data.substringAfter(":")}"
@@ -204,7 +237,16 @@ class AppViewModel(context: Context) : ViewModel() {
     fun scanDevices() { try { bluetooth.scan() } catch (e: Exception) { Log.e(TAG, "Bluetooth scan request failed", e); _availableDevices.value = emptyList() } }
     fun connectDevice(device: EchoBluetoothDevice) { viewModelScope.launch(bluetoothExceptionHandler) { try { if (!bluetooth.connect(device.address)) _deviceState.value = DeviceState() } catch (e: Exception) { Log.e(TAG, "Bluetooth connect request failed", e); _deviceState.value = DeviceState() } } }
     fun disconnectDevice() { try { bluetooth.disconnect() } catch (e: Exception) { Log.w(TAG, "Bluetooth disconnect failed", e) }; _telemetryData.value = TelemetryData(); _wifiPasswordRequest.value = null; _espWifiPasswordRequest.value = null }
-    fun updateTelemetry() { if (_deviceState.value.isConnected) Log.d(TAG, "Waiting for real ESP32 telemetry") }
+    fun updateTelemetry() {
+        if (!_deviceState.value.isConnected) return
+        viewModelScope.launch(bluetoothExceptionHandler) {
+            try {
+                bluetooth.send("STATS")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to request ESP32 telemetry", e)
+            }
+        }
+    }
     fun executeCommand(commandId: String) {
         if (!_deviceState.value.isConnected) return
         if (_controlCommands.value.none { it.id == commandId }) return

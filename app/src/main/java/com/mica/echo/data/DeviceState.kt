@@ -1,7 +1,5 @@
 package com.mica.echo.data
 
-import android.bluetooth.BluetoothDevice
-
 data class DeviceState(
     val name: String = "No Device",
     val address: String = "",
@@ -16,6 +14,9 @@ data class TelemetryData(
     val humidity: Float = 0f,
     val pressure: Float = 0f,
     val rssi: Int = -100,
+    val cpuMhz: Int = 0,
+    val freeHeapBytes: Long = 0L,
+    val bluetoothStatus: String = "UNKNOWN",
     val timestamp: Long = System.currentTimeMillis()
 )
 
